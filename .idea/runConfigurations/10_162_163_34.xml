@@ -1,0 +1,17 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="10.162.163.34" type="PyRemoteDebugConfigurationType" factoryName="Python Remote Debug" singleton="false">
+    <module name="SFEEBoT" />
+    <option name="PORT" value="22" />
+    <option name="HOST" value="10.162.163.34" />
+    <PathMappingSettings>
+      <option name="pathMappings">
+        <list>
+          <mapping local-root="$PROJECT_DIR$" remote-root="/tmp/ni.zhou/SFEEBoT" />
+        </list>
+      </option>
+    </PathMappingSettings>
+    <option name="REDIRECT_OUTPUT" value="true" />
+    <option name="SUSPEND_AFTER_CONNECT" value="true" />
+    <method v="2" />
+  </configuration>
+</component>
