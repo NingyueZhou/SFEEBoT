@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 
+'''
 # remote server
 import sys
 sys.path.append("/tmp/ni.zhou/pydevd-pycharm.egg")
@@ -8,12 +9,14 @@ import pydevd_pycharm
 pydevd_pycharm.settrace('10.162.163.34', port=22, stdoutToServer=True, stderrToServer=True)
 # Import helpful libraries
 sys.path.append("/tmp/ni.zhou/pandas")
+'''
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, KFold, cross_validate
 from sklearn.inspection import permutation_importance
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 # ---------------------------------------- data processing -----------------------------------------
@@ -32,8 +35,28 @@ print(tmp_X)
 X = tmp_X.select_dtypes(include=numerics)#[features] # select only numeric columns
 print(X.head())
 
+# test
+'''
+k_fold = KFold(n_splits=5, shuffle=True, random_state=0)
+for k, (train, test) in enumerate(k_fold.split(X, y)):
+    print(k + ' ' + train + ' ' + test)
+''''''
+cv_results = cross_validate(RandomForestRegressor(), X, y, cv=5, return_estimator=True)
+plt.plot(range(len(cv_results['estimator'])), cv_results['test_score'])
+plt.axhline(y=np.mean(cv_results['test_score']), linestyle='--', color='grey')
+#plt.fill_between(range(len(cv_results['estimator'])), np.mean(cv_results['test_score']) - np.std(cv_results['test_score']),
+#                 np.mean(cv_results['test_score']) + np.std(cv_results['test_score']), alpha=0.2,
+#                 color='navy', lw=2)
+plt.xlabel('estimator')
+plt.ylabel('test_score')
+plt.show()
+for fold_idx, estimator in enumerate(cv_results["estimator"]):
+    print(f"Best parameter found on fold #{fold_idx + 1}")
+    print(f"{estimator.get_params()}")
+'''
+
 # Split into validation and training data
-train_X, val_X, train_y, val_y = train_test_split(X, y, random_state=1)
+train_X, val_X, train_y, val_y = train_test_split(X, y, random_state=1, shuffle=False)
 
 
 # ---------------------------------------- training -----------------------------------------

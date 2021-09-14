@@ -1,35 +1,33 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="ge52qoj@10.162.163.34:22 password" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
       <paths name="10.162.163.34">
         <serverdata>
           <mappings>
             <mapping deploy="/tmp/ni.zhou/SFEEBoT" local="$PROJECT_DIR$" web="/" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="ge52qoj@10.162.163.34:22">
-        <serverdata>
-          <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/tmp/ni.zhou/SFEEBoT/.pycharm_helpers_5" local="$PROJECT_DIR$/.pycharm_helpers_5" web="/" />
           </mappings>
         </serverdata>
       </paths>
       <paths name="ge52qoj@10.162.163.34:22 key">
         <serverdata>
           <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/nfs/home/students/ge52qoj/SFEEBoT" local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>
       <paths name="ge52qoj@10.162.163.34:22 password">
         <serverdata>
           <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/nfs/home/students/ge52qoj/SFEEBoT" local="$PROJECT_DIR$" />
           </mappings>
+          <excludedPaths>
+            <excludedPath path="/nfs/home/students/ge52qoj/SFEEBoT/pandas/_libs/parsers.pyx" />
+          </excludedPaths>
         </serverdata>
       </paths>
     </serverData>
+    <option name="myAutoUpload" value="ALWAYS" />
   </component>
 </project>

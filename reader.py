@@ -2,6 +2,8 @@
 
 
 import cmapPy.pandasGEXpress.parse
+from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import OneHotEncoder
 import pandas as pd
 pd.set_option('display.max_columns', None)  # show all columns
 
@@ -82,6 +84,8 @@ def process_all(tables):
     # att + pheno
     # ------------------------------------
     subject_phenotypes['AGE'].replace({'20-29':0, '30-39':1, '40-49':2, '50-59':3, '60-69':4, '70-79':5}, inplace=True)  # convert age, str -> int
+    enc = OneHotEncoder(drop='if_binary', sparse=False, dtype=int, handle_unknown='error')  # creating instance of one-hot-encoder, drop the first category in each feature with two categories, return array instead of sparse matrix, output type is int
+    subject_phenotypes['SEX'] = enc.fit_transform(subject_phenotypes[['SEX']]) # convert sex, male=1-->male=0, female=2-->female=1
     sample_attributes['SUBJID'] = sample_attributes.apply(lambda att_row: extract_subj_id(att_row), axis=1)  # extract subject id from sample id, save it in a new column
     df2 = pd.merge(sample_attributes, subject_phenotypes, how='left', on='SUBJID')  # att + pheno, left join
     #df2 = df2.loc[df2.SMTSD.isin(['Whole Blood', 'Heart - Atrial Appendage', 'Heart - Left Ventricle'])]  # all samples from wb/heart
@@ -113,6 +117,13 @@ def process_all(tables):
     # Whole Blood + Heart AA
     # ------------------------------------
     df3_wb = df3.loc[df3.SMTSD == 'Whole Blood']  # select rows with value 'WB' in column 'SMTSD'
+    stat_df3_wb = df3_wb.groupby('SUBJID').SUBJID.count()  # statistic
+    scaler = StandardScaler()  # z-score normalization
+    ensembls = df3_wb.drop(['SAMPID', 'SMTSD', 'SUBJID', 'SEX', 'AGE'], axis=1)
+    scaled_ensembls = scaler.fit_transform(ensembls)
+    scaled_ensembls = pd.DataFrame(scaled_ensembls, columns=ensembls.columns)
+    left_cols = df3_wb[['SAMPID', 'SMTSD', 'SUBJID', 'SEX', 'AGE']]
+    df3_wb_std = pd.concat([left_cols, scaled_ensembls], axis=1)
     #df3_heart_aa = df3.loc[df3.SMTSD == 'Heart - Atrial Appendage']  # select rows with value 'HeartAA' in column 'SMTSD'
     #df3_heart_aa = df3_heart_aa.drop(['SEX', 'AGE'], axis=1)
     #df3_heart_aa['SMTSD'] = df3_heart_aa['SMTSD'].replace({'Heart - Atrial Appendage': 1})  # 1 in column 'SMTSD' means heartAA
@@ -123,9 +134,16 @@ def process_all(tables):
     # ------------------------------------
     df3_heart_lv = df3.loc[df3.SMTSD == 'Heart - Left Ventricle']  # select rows with value 'HeartLV' in column 'SMTSD'
     df3_heart_lv = df3_heart_lv.drop(['SEX', 'AGE'], axis=1)
+    stat_df3_heart_lv = df3_heart_lv.groupby('SUBJID').SUBJID.count()  # statistic
+    ensembls = df3_heart_lv.drop(['SAMPID', 'SMTSD', 'SUBJID'], axis=1)  # z-score normalization
+    scaled_ensembls = scaler.fit_transform(ensembls)
+    scaled_ensembls = pd.DataFrame(scaled_ensembls, columns=ensembls.columns)
+    left_cols = df3_heart_lv[['SAMPID', 'SMTSD', 'SUBJID']]
+    df3_heart_lv_std = pd.concat([left_cols, scaled_ensembls], axis=1)
     #df3_heart_lv['SMTSD'] = df3_heart_lv['SMTSD'].replace({'Heart - Left Ventricle': 2})  # 2 in column 'SMTSD' means heartLV
-    df3_wb_heart_lv = pd.merge(df3_wb, df3_heart_lv, how='left', on='SUBJID', suffixes=('_wb', '_heart_lv'))
-    df3_wb_heart_lv = df3_wb_heart_lv.dropna()
+    df3_wb_heart_lv_std = pd.merge(df3_wb_std, df3_heart_lv_std, how='left', on='SUBJID', suffixes=('_wb', '_heart_lv'))
+    df3_wb_heart_lv_std = df3_wb_heart_lv_std.dropna()
+    stat_df3_wb_heart_lv_std = df3_wb_heart_lv_std.groupby('SUBJID').SUBJID.count()  # statistic
     # ------------------------------------
     # Whole Blood + Heart
     # ------------------------------------
@@ -142,7 +160,7 @@ def process_all(tables):
     for ensembl_id in all_ensembl_ids:
         sf = df1.loc[df1.dbXrefs == ensembl_id, 'Splicing Factor'].values[0]
         #df = df3_wb_heart[['SEX', 'AGE', 'SMTSD_heart', *wb_id_list, ensembl_id+'_heart']]
-        df = df3_wb_heart_lv[['SEX', 'AGE', *wb_id_list, ensembl_id + '_heart_lv']]
+        df = df3_wb_heart_lv_std[['SEX', 'AGE', *wb_id_list, ensembl_id + '_heart_lv']]
         sf_2_df[sf] = df
     # ------------------------------------
     # return dict of results

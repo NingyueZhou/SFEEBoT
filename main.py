@@ -27,11 +27,11 @@ def main():
     # ------------------------------------
     model = args.model
     if model == 'en':
-        pass
+        model_en.run(process_result)
     if model == 'lr':
         model_lr.run(process_result)
     if model == 'rf':
-        pass
+        model_rf.run(process_result)
 
 
 if __name__ == '__main__':
