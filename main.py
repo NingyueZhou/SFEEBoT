@@ -13,6 +13,7 @@ parser.add_argument('-att', type=str, required=True, help='<tsv file of sample a
 parser.add_argument('-pheno', type=str, required=True, help='<tsv file of subject phenotypes>')
 parser.add_argument('-ginf', type=str, required=True, help='<tsv file of human gene info>')
 parser.add_argument('-sf', type=str, required=True, help='<tsv file of splicing factors>')
+parser.add_argument('-psi', required=False)
 parser.add_argument('-model', type=str, required=True, help='Model type used for prediction, [\"en\": elastic net regression | \"lr\": lasso regression | \"rf\": random forest regression]')
 parser.add_argument('-process_data_flag', type=str, required=True, help='Set to [True] to process all data, if set to [False] then simply load the processed data object.')
 parser.add_argument('-compute_result_flag', type=str, required=True, help='Set to [True] to train and test model, compute result, if set to [False] then simply load the computed result object.')
