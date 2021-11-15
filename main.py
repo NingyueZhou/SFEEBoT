@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 
+import joblib
 import reader
 import argparse as ap
 import model_en, model_lr, model_rf
@@ -13,6 +14,8 @@ parser.add_argument('-pheno', type=str, required=True, help='<tsv file of subjec
 parser.add_argument('-ginf', type=str, required=True, help='<tsv file of human gene info>')
 parser.add_argument('-sf', type=str, required=True, help='<tsv file of splicing factors>')
 parser.add_argument('-model', type=str, required=True, help='Model type used for prediction, [\"en\": elastic net regression | \"lr\": lasso regression | \"rf\": random forest regression]')
+parser.add_argument('-process_data_flag', type=str, required=True, help='Set to [True] to process all data, if set to [False] then simply load the processed data object.')
+parser.add_argument('-compute_result_flag', type=str, required=True, help='Set to [True] to train and test model, compute result, if set to [False] then simply load the computed result object.')
 args = parser.parse_args()
 
 
@@ -20,18 +23,45 @@ def main():
     # ------------------------------------
     # read data from files, merge useful data in a DataFrame
     # ------------------------------------
-    read_result = reader.read_all(tpm=args.tpm, att=args.att, pheno=args.pheno, ginf=args.ginf, sf=args.sf)
-    process_result = reader.process_all(read_result)
+    data_obj_file_name = 'output/processed_data.sav'
+    if args.process_data_flag.upper() == 'TRUE':
+        dfs = reader.read_all(tpm=args.tpm, att=args.att, pheno=args.pheno, ginf=args.ginf, sf=args.sf)
+        tissue_dfs = reader.merge_all(dfs)
+        wb_sf_dfs = reader.process_tissue_wise(tissue_dfs)
+        joblib.dump(wb_sf_dfs, data_obj_file_name)
+    if args.process_data_flag.upper() == 'FALSE':
+        wb_sf_dfs = joblib.load(data_obj_file_name)
     # ------------------------------------
     # fit data to model, training & predicting & validating
     # ------------------------------------
     model = args.model
     if model == 'en':
-        model_en.run(process_result)
+        result_obj_file_name = 'output/result_en.sav'
+        if args.compute_result_flag.upper() == 'TRUE':
+            tissue_2_result_df = model_en.run_single_sf(wb_sf_dfs)
+            joblib.dump(tissue_2_result_df, result_obj_file_name)
+            model_en.analyse_result(tissue_2_result_df)
+        elif args.compute_result_flag.upper() == 'FALSE':
+            tissue_2_result_df = joblib.load(result_obj_file_name)
+            model_en.analyse_result(tissue_2_result_df)
     if model == 'lr':
-        model_lr.run(process_result)
+        result_obj_file_name = 'output/result_lr.sav'
+        if args.compute_result_flag.upper() == 'TRUE':
+            tissue_2_result_df = model_lr.run_single_sf(wb_sf_dfs)
+            joblib.dump(tissue_2_result_df, result_obj_file_name)
+            model_lr.analyse_result(tissue_2_result_df)
+        elif args.compute_result_flag.upper() == 'FALSE':
+            tissue_2_result_df = joblib.load(result_obj_file_name)
+            model_lr.analyse_result(tissue_2_result_df)
     if model == 'rf':
-        model_rf.run(process_result)
+        result_obj_file_name = 'output/result_rf.sav'
+        if args.compute_result_flag.upper() == 'TRUE':
+            tissue_2_result_df = model_rf.run_single_sf(wb_sf_dfs)
+            joblib.dump(tissue_2_result_df, result_obj_file_name)
+            model_rf.analyse_result(tissue_2_result_df)
+        elif args.compute_result_flag.upper() == 'FALSE':
+            tissue_2_result_df = joblib.load(result_obj_file_name)
+            model_rf.analyse_result(tissue_2_result_df)
 
 
 if __name__ == '__main__':

@@ -22,9 +22,13 @@
           <mappings>
             <mapping deploy="/nfs/home/students/ge52qoj/SFEEBoT" local="$PROJECT_DIR$" />
           </mappings>
-          <excludedPaths>
-            <excludedPath path="/nfs/home/students/ge52qoj/SFEEBoT/pandas/_libs/parsers.pyx" />
-          </excludedPaths>
+        </serverdata>
+      </paths>
+      <paths name="zhoun@bioclient1.bio.ifi.lmu.de:12">
+        <serverdata>
+          <mappings>
+            <mapping local="$PROJECT_DIR$" web="/" />
+          </mappings>
         </serverdata>
       </paths>
     </serverData>

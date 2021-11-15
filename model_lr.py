@@ -1,130 +1,836 @@
 #!/usr/bin/python3
 
 
+import math
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.model_selection import GridSearchCV, ShuffleSplit
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, train_test_split
 from sklearn.model_selection import cross_val_score, learning_curve, validation_curve, cross_validate
 from sklearn.linear_model import Lasso
-from sklearn.linear_model import LassoCV
+from sklearn.linear_model import LassoCV, MultiTaskLassoCV
+from sklearn.metrics import mean_squared_error, explained_variance_score
+from sklearn.decomposition import PCA
+from sklearn.inspection import permutation_importance
+from scipy.stats import pearsonr, t, ttest_rel
+import seaborn as sns
+#from statsmodels.formula.api import ols
+#from mlxtend.evaluate import paired_ttest_5x2cv
 import utils
+import joblib
+import pandas as pd
+pd.set_option('display.max_columns', None)  # show all columns
+pd.set_option('display.max_rows', None)  # show all rows
+
 
 n_folds = 5
+#five_random_sf = ['ENSG00000115875', 'ENSG00000149187', 'ENSG00000071626', 'ENSG00000048740', 'ENSG00000102081']
 
 
-def run(process_result):
-    sf_2_df = process_result
-    sf_2_model = {}
-    # ------------------------------------
-    # for each splicing factor, perform nested cross validation, store best model for it in sf_2_model {sf: model}
-    # ------------------------------------
-    for sf in sf_2_df:
-        df = sf_2_df[sf]
+def run_single_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
+    #(tissue_2_wb_tissue_df, tissue_2_tissue_specific_genes, sf_ensembl_ids, sf_ensembl_2_name, pca) = wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca
+    (tissue_2_wb_tissue_df, tissue_2_tissue_specific_genes, sf_ensembl_ids, sf_ensembl_2_name, remained_genes, all_gene_ensembl_id_2_name, pca) = wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca
+    tissue_2_result_df = {}
+
+    for tissue in tissue_2_wb_tissue_df:
+        print(f'------------------- tissue: {tissue} -----------------------')
+        sf_name = []
+        tissue_specific = []
+        M1_significant_M0 = []
+        M0_R2_scores = []
+        M0_mean_R2_score = []
+        M0_R2_std = []
+        M1_R2_scores = []
+        M1_mean_R2_score = []
+        M1_R2_std = []
+        most_important_100_feature_genes_list = []
+
+        for sf_ensembl in sf_ensembl_ids:  #for sf_ensembl in five_random_sf:
+            sf_name.append(sf_ensembl_2_name[sf_ensembl])
+            if sf_ensembl in tissue_2_tissue_specific_genes[tissue]:
+                print(f'{sf_ensembl_2_name[sf_ensembl]} is tissue specific in {tissue}')
+                tissue_specific.append(1)
+            else:
+                tissue_specific.append(0)
+            print(f'------------------- splicing factor: {sf_ensembl_2_name[sf_ensembl]} -----------------------')
+            df = tissue_2_wb_tissue_df[tissue]
+            # ------------------------------------
+            # load data, split into train and test set
+            # ------------------------------------
+            y = df[[sf_ensembl]]
+            X = df.drop([*sf_ensembl_ids], axis=1)
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=0, shuffle=True)
+            # ------------------------------------
+            # prepare some variables
+            # ------------------------------------
+            #cv = KFold(n_splits=n_folds, shuffle=True, random_state=0)
+            cv_inner = KFold(n_splits=n_folds, shuffle=True, random_state=0)
+            cv_outer = KFold(n_splits=n_folds, shuffle=True, random_state=0)
+            alphas = np.logspace(-2, 0.7, 10)
+            param_grid = {'alpha': alphas}
+            model = Lasso(max_iter=1000)
+            #scoring = {'R2': 'r2', 'neg_MSE': 'neg_mean_squared_error', 'EV': 'explained_variance'}
+            scoring = 'r2'
+            # ------------------------------------
+            # baseline model M0 (sex, age)
+            # ------------------------------------
+            print(f'------------------- lr M0 (sex, age) : {tissue} : {sf_ensembl_2_name[sf_ensembl]} -----------------------')
+            #M0_filename = f'output/model/lr_M0_model_{tissue}_{sf_ensembl_2_name[sf_ensembl]}.sav'
+            M0_model = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, n_jobs=None, refit=True, cv=cv_inner, verbose=False, return_train_score=False)#verbose=4, refit='R2'
+            #M0_model.fit(X_train[['SEX', 'AGE']], y_train)
+            R2_scores_nestCV_M0 = cross_val_score(M0_model, X_train[['SEX', 'AGE']], y_train, cv=cv_outer, scoring=scoring)
+            #joblib.dump(M0_model, M0_filename)
+            '''
+            #M0_params = M0_model.get_params()  # {'cv': KFold(n_splits=5, random_state=0, shuffle=True), 'estimator__max_iter': 1000...}
+            M0_cv_results = pd.DataFrame(M0_model.cv_results_)
+            #print('M0 cv results:')
+            #print(M0_cv_results)
+            M0_best_cv_result = M0_cv_results.loc[M0_cv_results['rank_test_R2'] == 1]#
+            #print('M0 best cv result:')
+            #print(M0_best_cv_result)
+            M0_best_cv_score_R2 = M0_best_cv_result[['mean_test_R2']].values[0][0]
+            print('M0 best cv score R2: '+ str(M0_best_cv_score_R2) + ' +/- ' + str(M0_best_cv_result[['std_test_R2']].values[0][0]))
+            print('best parameters found: ' + str(M0_model.best_params_))
+
+            M0_y_pred = M0_model.predict(X_test[['SEX', 'AGE']])
+
+            #pcc_corr, pcc_p_val = pearsonr(M0_y_pred.ravel(), y_test.values.ravel())  # pearson correlation coefficient (PCC)  # ravel(): change the shape of y to (n_samples,)
+            #print(f'pearson correlation coefficient (PCC) = {pcc_corr}, p-value for testing non-correlation = {pcc_p_val}')
+
+            M0_test_score_R2 = M0_model.score(X_test[['SEX', 'AGE']], y_test)
+            print(f'M0 test score R2: {M0_test_score_R2}')
+            M0_test_score_MSE = mean_squared_error(y_test, M0_y_pred)
+            print(f'M0 test score MSE: {M0_test_score_MSE}')
+            M0_test_score_EV = explained_variance_score(y_test, M0_y_pred)
+            print(f'M0 test score EV: {M0_test_score_EV}')
+            '''
+            # ------------------------------------
+            # model M1 (sex, age, PC(WBGE))
+            # ------------------------------------
+            print(f'------------------- lr M1 (sex, age, PC(WBGE)) : {tissue} : {sf_ensembl_2_name[sf_ensembl]}-----------------------')
+            #M1_filename = f'output/model/lr_M1_model_{tissue}_{sf_ensembl_2_name[sf_ensembl]}.sav'
+            M1_model = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, n_jobs=None, refit=True, cv=cv_inner, verbose=False, return_train_score=False)#verbose=4, refit='R2'
+            M1_model.fit(X_train, y_train)
+            R2_scores_nestCV_M1 = cross_val_score(M1_model, X_train, y_train, cv=cv_outer, scoring=scoring)
+            #joblib.dump(M1_model, M1_filename)
+            '''
+            M1_cv_results = pd.DataFrame(M1_model.cv_results_)
+            #print('M1 cv results:')
+            #print(M1_cv_results)
+            M1_best_cv_result = M1_cv_results.loc[M1_cv_results['rank_test_R2'] == 1]
+            #print('M1 best cv result:')
+            #print(M1_best_cv_result)
+            M1_best_cv_score_R2 = M1_best_cv_result[['mean_test_R2']].values[0][0]
+            print('M1 best cv score R2: ' + str(M1_best_cv_score_R2) + ' +/- std' + str(M1_best_cv_result[['std_test_R2']].values[0][0]))
+            print('best parameters found: ' + str(M1_model.best_params_))
+
+            M1_y_pred = M1_model.predict(X_test)
+
+            #pcc_corr, pcc_p_val = pearsonr(M1_y_pred, y_test.values.ravel())  # pearson correlation coefficient (PCC)
+            #print(f'pearson correlation coefficient (PCC) = {pcc_corr}, p-value for testing non-correlation = {pcc_p_val}')
+
+            M1_test_score_R2 = M1_model.score(X_test, y_test)
+            print(f'M1 test score R2: {M1_test_score_R2}')
+            M1_test_score_MSE = mean_squared_error(y_test, M1_y_pred)
+            print(f'M1 test score MSE: {M1_test_score_MSE}')
+            M1_test_score_EV = explained_variance_score(y_test, M1_y_pred)
+            print(f'M1 test score EV: {M1_test_score_EV}')
+            '''
+            # ------------------------------------
+            # plot performance (R2, MSE, EV) of M0 and M1
+            # ------------------------------------
+            '''
+            labels = ['R2', 'EV', 'MSE']
+            M0_scores = [M0_test_score_R2, M0_test_score_EV, M0_test_score_MSE]
+            M1_scores = [M1_test_score_R2, M1_test_score_EV, M1_test_score_MSE]
+            x = np.arange(len(labels))  # the label locations
+            width = 0.2  # the width of the bars
+            fig, ax = plt.subplots()
+            ax.bar(x - width / 2, M0_scores, width, label='baseline model M0')
+            ax.bar(x + width / 2, M1_scores, width, label='model M1')
+            ax.set_ylabel('Performance')
+            ax.set_title(f'Performance of lr models for {sf_ensembl_2_name[sf_ensembl]} in {tissue}')
+            ax.set_xticks(x)
+            ax.set_xticklabels(labels)
+            ax.legend()
+            fig.tight_layout()
+            plt.savefig(f'output/fig/performance_lr_models_{sf_ensembl_2_name[sf_ensembl]}_{tissue}.png')
+            plt.show()
+            '''
+            # ------------------------------------
+            # paired student's t-test (M0, M1), if the contribution from transcriptome (WB) toward prediction over CF (sex, age) is significant
+            # ------------------------------------
+            print(f'------------------- Paired Student\'s t-test : {tissue} : {sf_ensembl_2_name[sf_ensembl]}-----------------------')
+            '''
+            num_subsets = 5
+            size_subset = int(X_test.shape[0]/num_subsets)
+            i = 0
+            R2_scores_M0_test_subset = []
+            R2_scores_M1_test_subset = []
+            while i < num_subsets:
+                subset_X_test = X_test.iloc[size_subset*i:size_subset*(i+1), :]
+                subset_y_test = y_test.iloc[size_subset*i:size_subset*(i+1), :]
+                R2_scores_M0_test_subset.append(M0_model.score(subset_X_test[['SEX', 'AGE']], subset_y_test))
+                R2_scores_M1_test_subset.append(M1_model.score(subset_X_test, subset_y_test))
+                i += 1
+            '''
+            # how can we conclude if B is better than A? Since we have 5 different performance values, we already have a distribution to calculate confidence intervals. The student's t-distributions can be otained from scipy.stats
+            confidence_interval_M0 = np.std(R2_scores_nestCV_M0) / math.sqrt(len(R2_scores_nestCV_M0)) * t.ppf((1 + 0.95) / 2, len(R2_scores_nestCV_M0))
+            confidence_interval_M1 = np.std(R2_scores_nestCV_M1) / math.sqrt(len(R2_scores_nestCV_M1)) * t.ppf((1 + 0.95) / 2, len(R2_scores_nestCV_M1))
+            print('Average performance for M0: {:.3f} +/- ci {:.3f}'.format(np.mean(R2_scores_nestCV_M0), confidence_interval_M0))
+            print('Average performance for M1: {:.3f} +/- ci {:.3f}'.format(np.mean(R2_scores_nestCV_M1), confidence_interval_M1))
+            # Since the CIs of both methods overlap, we cannot tell whether the difference between A and B is statistically significant without running further tests. To test whether the difference is significant, we apply a paired t-test testing for the null hypothesis that the two means of method A and method B are equal.
+            # The test needs to be "paired" because our two methods were tested on the same data set. We can apply a two-sided test if we want to check if the performance is equal or a one-sided test if we want to check whether method B performs better than method A.
+            ttest_twosided_statistic, ttest_twosided_pvalue = ttest_rel(R2_scores_nestCV_M0, R2_scores_nestCV_M1)
+            print('p-value for two-sided t-test = {:.3f}, the t-statistics = {:.3f}'.format(ttest_twosided_pvalue, ttest_twosided_statistic))  # assume p-value for two-sided t-test: 0.935 -> The p-value is 0.935 which is clearly larger than e.g., 0.05 which is a common significance level. Therefore, we cannot reject the null hypothesis and the performance between A and B is not statistically significant.
+            significance_level = 0.05
+            if ttest_twosided_pvalue <= significance_level:
+                print(f'Since p <= {significance_level}, We can reject the null-hypothesis that both models perform equally well on this dataset. We may conclude that the two algorithms are significantly different.')
+                M1_significant_M0.append(1)
+            else:
+                print(f'Since p > {significance_level}, we cannot reject the null hypothesis and may conclude that the performance of the two algorithms is not significantly different.')
+                M1_significant_M0.append(0)
+            M0_R2_scores.append(R2_scores_nestCV_M0)
+            M0_mean_R2_score.append(np.mean(R2_scores_nestCV_M0))
+            M0_R2_std.append(np.std(R2_scores_nestCV_M0))
+            M1_R2_scores.append(R2_scores_nestCV_M1)
+            M1_mean_R2_score.append(np.mean(R2_scores_nestCV_M1))
+            M1_R2_std.append(np.std(R2_scores_nestCV_M1))
+            # ------------------------------------
+            # permutation feature importance
+            # ------------------------------------
+            print("lr M1 test r2 score: %0.3f" % M1_model.score(X_test, y_test))
+            permu_impo_result = permutation_importance(M1_model, X_test, y_test, scoring=scoring, n_repeats=5, random_state=0)
+            sorted_idx = permu_impo_result.importances_mean.argsort()
+            fig, ax = plt.subplots()
+            #fig.set_size_inches(8, 14)
+            ax.boxplot(permu_impo_result.importances[sorted_idx[:5]].T, vert=False, labels=X_test.columns[sorted_idx[:5]], patch_artist=True)
+            ax.set_title(f"lr M1 top5 feature importances {sf_ensembl_2_name[sf_ensembl]} in {tissue}")
+            #fig.tight_layout()
+            if '/' in sf_ensembl_2_name[sf_ensembl]:
+                plt.savefig('output/fig/lr_r2_m1_top5_permu_featu_impo_{}_{}.png'.format(tissue, sf_ensembl_2_name[sf_ensembl].split('/')[0]))
+            else:
+                plt.savefig(f'output/fig/lr_r2_m1_top5_permu_featu_impo_{tissue}_{sf_ensembl_2_name[sf_ensembl]}.png')
+            plt.show()
+
+            top_5_pca_features = []
+            for i in permu_impo_result.importances_mean.argsort()[::-1]:
+                top_5_pca_features.append(list(X.columns)[i])
+            for ele in ['SEX', 'AGE']:
+                top_5_pca_features.remove(ele)
+            top_5_pca_features = top_5_pca_features[:5]
+
+            n_pcs = pca.components_.shape[0]  # number of components
+            most_important_20_genes_idx_all_pca = [np.argpartition(np.abs(pca.components_[i]), 19) for i in range(n_pcs)]  # get the index of the most important feature on EACH component
+            initial_feature_names = list(remained_genes)
+            most_important_20_genes_ensembl_all_pca = []
+            for i in range(n_pcs):
+                most_important_20_genes_ensembl = [initial_feature_names[most_important_20_genes_idx_all_pca[i][j]] for j in range(20)]
+                most_important_20_genes_ensembl_all_pca.append(most_important_20_genes_ensembl)
+
+            most_important_100_feature_genes = []
+            for pca_idx in top_5_pca_features:
+                most_important_20_feature_genes_ensembl_one_pca = most_important_20_genes_ensembl_all_pca[pca_idx]
+                most_important_20_feature_genes_symb_one_pca = []
+                for ensembl in most_important_20_feature_genes_ensembl_one_pca:
+                    if ensembl in all_gene_ensembl_id_2_name:
+                        most_important_20_feature_genes_symb_one_pca.append(all_gene_ensembl_id_2_name[ensembl])
+                    else:
+                        most_important_20_feature_genes_symb_one_pca.append(ensembl)
+                for gene_name in most_important_20_feature_genes_symb_one_pca:
+                    most_important_100_feature_genes.append(gene_name)
+            most_important_100_feature_genes = set(most_important_100_feature_genes)
+            most_important_100_feature_genes = list(most_important_100_feature_genes)
+            most_important_100_feature_genes_list.append(most_important_100_feature_genes)
         # ------------------------------------
-        # load data
+        # result table for this tissue
         # ------------------------------------
-        y = df.iloc[:, -1]  # ensembl_id_heart column
-        X = df.iloc[:, :-1]  # all column except the last one
+        result_dict = {'sf_name': sf_name, 'tissue': tissue, 'tissue_specific': tissue_specific, 'M1_significant_M0': M1_significant_M0, 'M0_mean_R2_score': M0_mean_R2_score, 'M0_R2_std': M0_R2_std, 'M0_R2_scores': M0_R2_scores, 'M1_mean_R2_score': M1_mean_R2_score, 'M1_R2_std': M1_R2_std, 'M1_R2_scores': M1_R2_scores, 'most_predictive_feature_genes': most_important_100_feature_genes_list}
+        result_df = pd.DataFrame(result_dict)
+        #result_df['tissue'] = tissue
+        tissue_2_result_df[tissue] = result_df
+    joblib.dump(tissue_2_result_df, 'output/result_lr.sav')
+    return tissue_2_result_df
+
+def analyse_result(tissue_2_result_df):
+    print('------------------- Result analysis (lr) -----------------------')
+    for tissue in tissue_2_result_df:
+        result_df = pd.DataFrame(tissue_2_result_df[tissue])
+        result_df.drop_duplicates(inplace=True, subset=['sf_name'])
+        result_df.reset_index(drop=True, inplace=True)
+        '''
+        result_df_M0 = result_df[['sf_name', 'tissue', 'tissue_specific', 'M1_significant_M0', 'M0_mean_R2_score', 'M0_R2_std', 'M0_R2_scores']]
+        result_df_M0['model'] = 'M0'
+        result_df_M0.rename(columns={'M0_mean_R2_score':'mean_R2_score', 'M0_R2_std':'R2_std','M0_R2_scores':'R2_scores'}, inplace=True)
+        result_df_M1 = result_df[['sf_name', 'tissue', 'tissue_specific', 'M1_significant_M0', 'M1_mean_R2_score', 'M1_R2_std', 'M1_R2_scores']]
+        result_df_M1['model'] = 'M1'
+        result_df_M1.rename(columns={'M1_mean_R2_score': 'mean_R2_score', 'M1_R2_std': 'R2_std', 'M1_R2_scores': 'R2_scores'}, inplace=True)
+        result_df = pd.concat([result_df_M0, result_df_M1])
         '''
         # ------------------------------------
-        # inner cv, for parameter tuning
-        # -----------------------------------
-        cv_inner = KFold(n_splits=n_folds, shuffle=True, random_state=0)
-        alphas = np.logspace(-4, 0.5, 100)  # create a list of 100 candidate values for the alpha parameter, interval [0.0001 - 3.16]
-        tuned_parameters = [{'alpha': alphas}]
-        lasso_model = Lasso(alpha=1.0, random_state=0, max_iter=10000)
-        clf = GridSearchCV(estimator=lasso_model, param_grid=tuned_parameters, cv=cv_inner, refit=True)
-        clf.fit(X, y)
-        print(clf.cv_results_)
+        # bar plot with CI, R2 score of M1 in each tissue for all 71 sf
         # ------------------------------------
-        # outer cv, for model evaluation
-        # -----------------------------------
-        cv_outer = KFold(n_splits=n_folds, shuffle=True, random_state=0)
-        scores = cross_val_score(clf, X, y, cv=cv_outer)
-        print('Score: %.3f (%.3f)' % (np.mean(scores), np.std(scores)))
-        # -----------------------------------
-        # plot validation curve
-        # -----------------------------------
-        plot_validation_curve(clf, X, y, param_name='alpha', param_range=alphas)
+        '''
+        bar_width = 0.4  # width of the bars
+        bars1 = result_df['M1_mean_R2_score']  # Choose the height of the blue bars
+        yer1 = result_df['M1_R2_std']  # Choose the height of the error bars (bars1)
+        r1 = np.arange(len(bars1))  # The x position of bars
+        plt.bar(r1, bars1, width=bar_width, yerr=yer1, capsize=0)
+        plt.xticks([r + bar_width for r in range(len(bars1))], result_df['sf_name'], rotation=90)
+        plt.rc('xtick', labelsize=4)
+        plt.ylabel('R2 score')
+        plt.title(f'Performance of M1 in {tissue} with std (lr)')
+        plt.tight_layout()
+        plt.savefig(f'output/fig/lr_r2_m1_all_sf_bar_std_{tissue}.png')
+        plt.show()
+        '''
+        plt.figure(figsize=(14, 8))
+        sns.set_style("whitegrid")
+        #print(result_df['M1_R2_std'].size)
+        sns.barplot(x='sf_name', y='M1_mean_R2_score', data=result_df, palette='Blues', capsize=0, ci=None, yerr=result_df['M1_R2_std'])#ci='sd'
+        plt.xticks(rotation=90)
+        plt.ylabel('R2 score')
+        plt.title(f'lr M1 performance in {tissue}')
+        plt.tight_layout()
+        plt.savefig(f'output/fig/lr_r2_m1_all_sf_bar_{tissue}.png')
+        plt.show()
 
+        print(f'------------------- tissue: {tissue} -----------------------')
+        print('tissue specific SF:')
+        print(result_df[result_df['tissue_specific'] == 1].shape[0])
+        print(result_df[result_df['tissue_specific'] == 1].shape[0] / float(result_df.shape[0]))
+        print(result_df.loc[result_df['tissue_specific'] == 1, ['sf_name']])
 
-def plot_curve(ticks, train_scores, test_scores):
-    train_scores_mean = -1 * np.mean(train_scores, axis=1)
-    train_scores_std = -1 * np.std(train_scores, axis=1)
-    test_scores_mean = -1 * np.mean(test_scores, axis=1)
-    test_scores_std = -1 * np.std(test_scores, axis=1)
-    plt.figure()
-    plt.fill_between(ticks, train_scores_mean - train_scores_std, train_scores_mean + train_scores_std, alpha=0.1, color="b")
-    plt.fill_between(ticks, test_scores_mean - test_scores_std, test_scores_mean + test_scores_std, alpha=0.1, color="r")
-    plt.plot(ticks, train_scores_mean, 'b-', label='Training score')
-    plt.plot(ticks, test_scores_mean, 'r-', label='Test score')
-    plt.legend(fancybox=True, facecolor='w')
-    return plt.gca()
+        plt.figure(figsize=(14, 8))
+        sns.set_style("whitegrid")
+        sns.barplot(x='sf_name', y='M1_mean_R2_score', data=result_df[result_df['tissue_specific'] == 1], palette='Greens', capsize=0, ci=None, yerr=result_df[result_df['tissue_specific'] == 1]['M1_R2_std'])
+        plt.xticks(rotation=90)
+        plt.ylabel('R2 score')
+        plt.title(f'lr M1 performance in {tissue} on tissue specific SF')
+        plt.tight_layout()
+        plt.savefig(f'output/fig/lr_r2_m1_tissue_speci_sf_bar_{tissue}.png')
+        plt.show()
 
+        print('M1 significant SF:')
+        print(result_df[result_df['M1_significant_M0'] == 1].shape[0])
+        print(result_df[result_df['M1_significant_M0'] == 1].shape[0] / float(result_df.shape[0]))
+        print(result_df.loc[result_df['M1_significant_M0'] == 1, ['sf_name']])
 
-def plot_validation_curve(clf, X, y, param_name, param_range):
-    plt.xkcd()
-    ax = plot_curve(param_range, *validation_curve(clf, X, y, cv=n_folds, param_name=param_name, param_range=param_range, n_jobs=-1))
-    ax.set_title('Validation Curve with Lasso')
-    ax.set_xticklabels([])
-    ax.set_yticklabels([])
-    ax.set_ylabel('Error')
-    ax.set_xlabel(r'$\alpha$')
-    #ax.set_xlabel('Model complexity')
-    #ax.set_xlim(2,12)
-    #ax.set_ylim(-0.97, -0.83)
-    #ax.text(9, -0.94, 'Overfitting', fontsize=22)
-    #ax.text(3, -0.94, 'Underfitting', fontsize=22)
-    #ax.axvline(7, ls='--')
+        plt.figure(figsize=(14, 8))
+        sns.set_style("whitegrid")
+        sns.barplot(x='sf_name', y='M1_mean_R2_score', data=result_df[result_df['M1_significant_M0'] == 1], palette='Reds', capsize=0, ci=None, yerr=result_df[result_df['M1_significant_M0'] == 1]['M1_R2_std'])
+        plt.xticks(rotation=90)
+        plt.ylabel('R2 score')
+        plt.title(f'lr M1 performance in {tissue} on M1 significant SF')
+        plt.tight_layout()
+        plt.savefig(f'output/fig/lr_r2_m1_tissue_m1_signif_bar_{tissue}.png')
+        plt.show()
+    # ------------------------------------
+    # merge all result to one big table
+    # ------------------------------------
+    big_result_df = pd.concat(tissue_2_result_df.values())
+    # ------------------------------------
+    # violin plot, M1 performance of all SF, tissue wise
+    # ------------------------------------
+    plt.figure(figsize=(10, 8))
+    sns.violinplot(x='tissue', y='M1_mean_R2_score', data=big_result_df)
+    plt.ylabel('R2 score')
+    plt.xlabel('')
+    plt.title('lr M1 performance of all SF')
     plt.tight_layout()
+    plt.savefig('output/fig/lr_r2_m1_vio_all_sf.png')
+    plt.show()
+    # ------------------------------------
+    # tissue specific SF only
+    # ------------------------------------
+    big_result_df_tissue_speci_sf = big_result_df.loc[big_result_df['tissue_specific'] == 1, ['sf_name', 'tissue', 'M1_mean_R2_score']]
+    # ------------------------------------
+    # violin plot, M1 performance of tissue specific SF, tissue wise
+    # ------------------------------------
+    plt.figure(figsize=(10, 8))
+    sns.violinplot(x='tissue', y='M1_mean_R2_score', data=big_result_df_tissue_speci_sf)
+    plt.ylabel('R2 score')
+    plt.xlabel('')
+    plt.title('lr M1 performance of tissue specific SF')
+    plt.tight_layout()
+    plt.savefig('output/fig/lr_r2_m1_vio_tissue_speci_sf.png')
+    plt.show()
+    # ------------------------------------
+    # M1 significant SF only
+    # ------------------------------------
+    big_result_df_M1_signif_sf = big_result_df.loc[big_result_df['M1_significant_M0'] == 1, ['sf_name', 'tissue', 'M1_mean_R2_score']]
+    # ------------------------------------
+    # violin plot, M1 performance of M1 significant SF, tissue wise
+    # ------------------------------------
+    plt.figure(figsize=(10, 8))
+    sns.violinplot(x='tissue', y='M1_mean_R2_score', data=big_result_df_M1_signif_sf)
+    plt.ylabel('R2 score')
+    plt.xlabel('')
+    plt.title('lr M1 performance of M1 significant SF')
+    plt.tight_layout()
+    plt.savefig('output/fig/lr_r2_m1_vio_m1_signif_sf.png')
+    plt.show()
+
+
 '''
+def run_single_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
+    (tissue_2_wb_tissue_df, tissue_2_tissue_specific_genes, sf_ensembl_ids, sf_ensembl_2_name, pca) = wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca
+    tissue_2_results_df = {}
+
+    for tissue in tissue_2_wb_tissue_df:
+        print(f'------------------- tissue: {tissue} -----------------------')
+        sf_name = []
+        tissue_specific = []
+        M1_significant_M0 = []
+        M0_R2_scores = []
+        M0_mean_R2_score = []
+        M0_R2_ci = []
+        M1_R2_scores = []
+        M1_mean_R2_score = []
+        M1_R2_ci = []
+
+        for sf_ensembl in sf_ensembl_ids:  #for sf_ensembl in five_random_sf:
+            sf_name.append(sf_ensembl_2_name[sf_ensembl])
+            if sf_ensembl in tissue_2_tissue_specific_genes[tissue]:
+                tissue_specific.append(1)
+            else:
+                tissue_specific.append(0)
+            print(f'------------------- splicing factor: {sf_ensembl_2_name[sf_ensembl]} -----------------------')
+            df = tissue_2_wb_tissue_df[tissue]
+            # ------------------------------------
+            # load data, split into train and test set
+            # ------------------------------------
+            y = df[[sf_ensembl]]
+            X = df.drop([*sf_ensembl_ids], axis=1)
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0, shuffle=True)
+            # ------------------------------------
+            # prepare some variables
+            # ------------------------------------
+            cv = KFold(n_splits=n_folds, shuffle=True, random_state=0)
+            alphas = np.logspace(-2, 0.7, 10)
+            param_grid = {'alpha': alphas}
+            model = Lasso(max_iter=1000)
+            scoring = {'R2': 'r2', 'neg_MSE': 'neg_mean_squared_error', 'EV': 'explained_variance'}
+            # ------------------------------------
+            # baseline model M0 (sex, age)
+            # ------------------------------------
+            print(f'------------------- lr M0 (sex, age) : {tissue} : {sf_ensembl_2_name[sf_ensembl]} -----------------------')
+            # = f'output/model/lr_M0_model_{tissue}_{sf_ensembl_2_name[sf_ensembl]}.sav'
+
+            M0_model = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, n_jobs=None, refit='R2', cv=cv, verbose=False, return_train_score=False)#verbose=4
+            M0_model.fit(X_train[['SEX', 'AGE']], y_train)
+            #joblib.dump(M0_model, M0_filename)
+
+            M0_cv_results = pd.DataFrame(M0_model.cv_results_)
+            #print('M0 cv results:')
+            #print(M0_cv_results)
+            M0_best_cv_result = M0_cv_results.loc[M0_cv_results['rank_test_R2'] == 1]
+            #print('M0 best cv result:')
+            #print(M0_best_cv_result)
+            M0_best_cv_score_R2 = M0_best_cv_result[['mean_test_R2']].values[0][0]
+            print('M0 best cv score R2: '+ str(M0_best_cv_score_R2) + ' +/- ' + str(M0_best_cv_result[['std_test_R2']].values[0][0]))
+            print('best parameters found: ' + str(M0_model.best_params_))
+
+            M0_y_pred = M0_model.predict(X_test[['SEX', 'AGE']])
+
+            #pcc_corr, pcc_p_val = pearsonr(M0_y_pred.ravel(), y_test.values.ravel())  # pearson correlation coefficient (PCC)  # ravel(): change the shape of y to (n_samples,)
+            #print(f'pearson correlation coefficient (PCC) = {pcc_corr}, p-value for testing non-correlation = {pcc_p_val}')
+
+            M0_test_score_R2 = M0_model.score(X_test[['SEX', 'AGE']], y_test)
+            print(f'M0 test score R2: {M0_test_score_R2}')
+            M0_test_score_MSE = mean_squared_error(y_test, M0_y_pred)
+            print(f'M0 test score MSE: {M0_test_score_MSE}')
+            M0_test_score_EV = explained_variance_score(y_test, M0_y_pred)
+            print(f'M0 test score EV: {M0_test_score_EV}')
+
+            # ------------------------------------
+            # model M1 (sex, age, PC(WBGE))
+            # ------------------------------------
+            print(f'------------------- lr M1 (sex, age, PC(WBGE)) : {tissue} : {sf_ensembl_2_name[sf_ensembl]}-----------------------')
+            #M1_filename = f'output/model/lr_M1_model_{tissue}_{sf_ensembl_2_name[sf_ensembl]}.sav'
+
+            M1_model = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, n_jobs=None, refit='R2', cv=cv, verbose=False, return_train_score=False)#verbose=4
+            M1_model.fit(X_train, y_train)
+            #joblib.dump(M1_model, M1_filename)
+
+            M1_cv_results = pd.DataFrame(M1_model.cv_results_)
+            #print('M1 cv results:')
+            #print(M1_cv_results)
+            M1_best_cv_result = M1_cv_results.loc[M1_cv_results['rank_test_R2'] == 1]
+            #print('M1 best cv result:')
+            #print(M1_best_cv_result)
+            M1_best_cv_score_R2 = M1_best_cv_result[['mean_test_R2']].values[0][0]
+            print('M1 best cv score R2: ' + str(M1_best_cv_score_R2) + ' +/- std' + str(M1_best_cv_result[['std_test_R2']].values[0][0]))
+            print('best parameters found: ' + str(M1_model.best_params_))
+
+            M1_y_pred = M1_model.predict(X_test)
+
+            #pcc_corr, pcc_p_val = pearsonr(M1_y_pred, y_test.values.ravel())  # pearson correlation coefficient (PCC)
+            #print(f'pearson correlation coefficient (PCC) = {pcc_corr}, p-value for testing non-correlation = {pcc_p_val}')
+
+            M1_test_score_R2 = M1_model.score(X_test, y_test)
+            print(f'M1 test score R2: {M1_test_score_R2}')
+            M1_test_score_MSE = mean_squared_error(y_test, M1_y_pred)
+            print(f'M1 test score MSE: {M1_test_score_MSE}')
+            M1_test_score_EV = explained_variance_score(y_test, M1_y_pred)
+            print(f'M1 test score EV: {M1_test_score_EV}')
+            # ------------------------------------
+            # plot performance (R2, MSE, EV) of M0 and M1
+            # ------------------------------------
+            
+            ###labels = ['R2', 'EV', 'MSE']
+            ###M0_scores = [M0_test_score_R2, M0_test_score_EV, M0_test_score_MSE]
+            ###M1_scores = [M1_test_score_R2, M1_test_score_EV, M1_test_score_MSE]
+            ###x = np.arange(len(labels))  # the label locations
+            ###width = 0.2  # the width of the bars
+            ###fig, ax = plt.subplots()
+            ###ax.bar(x - width / 2, M0_scores, width, label='baseline model M0')
+            ###ax.bar(x + width / 2, M1_scores, width, label='model M1')
+            ###ax.set_ylabel('Performance')
+            ###ax.set_title(f'Performance of lr models for {sf_ensembl_2_name[sf_ensembl]} in {tissue}')
+            ###ax.set_xticks(x)
+            ###ax.set_xticklabels(labels)
+            ###ax.legend()
+            ###fig.tight_layout()
+            ###plt.savefig(f'output/fig/performance_lr_models_{sf_ensembl_2_name[sf_ensembl]}_{tissue}.png')
+            ###plt.show()
+            
+            # ------------------------------------
+            # paired student's t-test (M0, M1), if the contribution from transcriptome (WB) toward prediction over CF (sex, age) is significant
+            # ------------------------------------
+            print(f'------------------- Paired Student\'s t-test : {tissue} : {sf_ensembl_2_name[sf_ensembl]}-----------------------')
+            num_subsets = 5
+            size_subset = int(X_test.shape[0]/num_subsets)
+            i = 0
+            R2_scores_M0_test_subset = []
+            R2_scores_M1_test_subset = []
+            while i < num_subsets:
+                subset_X_test = X_test.iloc[size_subset*i:size_subset*(i+1), :]
+                subset_y_test = y_test.iloc[size_subset*i:size_subset*(i+1), :]
+                R2_scores_M0_test_subset.append(M0_model.score(subset_X_test[['SEX', 'AGE']], subset_y_test))
+                R2_scores_M1_test_subset.append(M1_model.score(subset_X_test, subset_y_test))
+                i += 1
+            # how can we conclude if B is better than A? Since we have 5 different performance values, we already have a distribution to calculate confidence intervals. The student's t-distributions can be otained from scipy.stats
+            confidence_interval_M0 = np.std(R2_scores_M0_test_subset) / math.sqrt(len(R2_scores_M0_test_subset)) * t.ppf((1 + 0.95) / 2, len(R2_scores_M0_test_subset))
+            confidence_interval_M1 = np.std(R2_scores_M1_test_subset) / math.sqrt(len(R2_scores_M1_test_subset)) * t.ppf((1 + 0.95) / 2, len(R2_scores_M1_test_subset))
+            print('Average performance for M0: {:.3f} +/- ci {:.3f}'.format(np.mean(R2_scores_M0_test_subset), confidence_interval_M0))
+            print('Average performance for M1: {:.3f} +/- ci {:.3f}'.format(np.mean(R2_scores_M1_test_subset), confidence_interval_M1))
+            # Since the CIs of both methods overlap, we cannot tell whether the difference between A and B is statistically significant without running further tests. To test whether the difference is significant, we apply a paired t-test testing for the null hypothesis that the two means of method A and method B are equal.
+            # The test needs to be "paired" because our two methods were tested on the same data set. We can apply a two-sided test if we want to check if the performance is equal or a one-sided test if we want to check whether method B performs better than method A.
+            ttest_twosided_statistic, ttest_twosided_pvalue = ttest_rel(R2_scores_M0_test_subset, R2_scores_M1_test_subset)
+            print('p-value for two-sided t-test = {:.3f}, the t-statistics = {:.3f}'.format(ttest_twosided_pvalue, ttest_twosided_statistic))  # assume p-value for two-sided t-test: 0.935 -> The p-value is 0.935 which is clearly larger than e.g., 0.05 which is a common significance level. Therefore, we cannot reject the null hypothesis and the performance between A and B is not statistically significant.
+            significance_level = 0.05
+            if ttest_twosided_pvalue <= significance_level:
+                print(f'Since p <= {significance_level}, We can reject the null-hypothesis that both models perform equally well on this dataset. We may conclude that the two algorithms are significantly different.')
+                M1_significant_M0.append(1)
+            else:
+                print(f'Since p > {significance_level}, we cannot reject the null hypothesis and may conclude that the performance of the two algorithms is not significantly different.')
+                M1_significant_M0.append(0)
+            M0_R2_scores.append(R2_scores_M0_test_subset)
+            M0_mean_R2_score.append(np.mean(R2_scores_M0_test_subset))
+            M0_R2_ci.append(confidence_interval_M0)
+            M1_R2_scores.append(R2_scores_M1_test_subset)
+            M1_mean_R2_score.append(np.mean(R2_scores_M1_test_subset))
+            M1_R2_ci.append(confidence_interval_M1)
+        # ------------------------------------
+        # result table for this tissue
+        # ------------------------------------
+        results_dict = {'sf_name': sf_name, 'tissue_specific': tissue_specific, 'M1_significant_M0': M1_significant_M0, 'M0_R2_scores': M0_R2_scores, 'M0_mean_R2_score': M0_mean_R2_score, 'M0_R2_ci': M0_R2_ci, 'M1_R2_scores': M1_R2_scores, 'M1_mean_R2_score': M1_mean_R2_score, 'M1_R2_ci': M1_R2_ci}
+        results_df = pd.DataFrame(results_dict)
+        tissue_2_results_df[tissue] = results_df
+
+    for tissue in tissue_2_results_df:
+        results_df = tissue_2_results_df[tissue]
+
+        # ------------------------------------
+        # bar plot with CI, R2 score of M1 in each tissue for all 71 sf
+        # ------------------------------------
+        bar_width = 0.3  # width of the bars
+        bars1 = results_df['M1_mean_R2_score']  # Choose the height of the blue bars
+        yer1 = results_df['M1_R2_ci']  # Choose the height of the error bars (bars1)
+        r1 = np.arange(len(bars1))  # The x position of bars
+        plt.bar(r1, bars1, width=bar_width, edgecolor='black', yerr=yer1, capsize=7)
+        plt.xticks([r + bar_width for r in range(len(bars1))], results_df['sf_name'])
+        plt.ylabel('R2 score')
+        plt.title(f'Performance of M1 in {tissue} with CI')
+        plt.tight_layout()
+        plt.savefig(f'output/fig/r2_m1_all_sf_bar_ci_{tissue}.png')
+        plt.show()
+'''
+
+
+def run_multi_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
+    (tissue_2_wb_tissue_df, tissue_2_tissue_specific_genes, sf_ensembl_ids, pca) = wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca
+
+    for tissue in tissue_2_wb_tissue_df:
+        print(f'------------------- tissue: {tissue} -----------------------')
+        df = tissue_2_wb_tissue_df[tissue]
+        # ------------------------------------
+        # load data, split into train and test set
+        # ------------------------------------
+        Y = df[[*sf_ensembl_ids]]
+        X = df.drop([*sf_ensembl_ids], axis=1)
+        X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=0, shuffle=True)
         # ------------------------------------
         # prepare some variables
         # ------------------------------------
-        k_fold = KFold(n_splits=n_folds, shuffle=True, random_state=0)
-        alphas = np.logspace(-4, -0.5, 30)
+        cv = KFold(n_splits=n_folds, shuffle=True, random_state=0)
+        alphas = np.logspace(-2, 0.7, 10)
+        param_grid = {'alpha': alphas}
+        model = Lasso(max_iter=1000)
+        scoring = {'R2': 'r2', 'neg_MSE': 'neg_mean_squared_error', 'EV': 'explained_variance'}#, 'max_E':'max_error'}  # ValueError: Multioutput not supported in max_error
+        # ------------------------------------
+        # baseline model M0 (sex, age)
+        # ------------------------------------
+        print(f'------------------- lr M0 (sex, age): {tissue} -----------------------')
+        M0_filename = f'output/model/lr_M0_model_71sf_{tissue}.sav'
+
+        M0_model = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, n_jobs=None, refit='R2', cv=cv, verbose=4, return_train_score=False)
+        M0_model.fit(X_train[['SEX', 'AGE']], Y_train)
+        joblib.dump(M0_model, M0_filename)
+
+        M0_cv_results = pd.DataFrame(M0_model.cv_results_)
+        print('M0 cv results:')
+        print(M0_cv_results)
+        M0_best_cv_result = M0_cv_results.loc[M0_cv_results['rank_test_R2'] == 1]
+        print('M0 best cv result:')
+        print(M0_best_cv_result)
+        M0_best_cv_score_R2 = M0_best_cv_result[['mean_test_R2']].values[0]
+        print('M0 best cv score R2: ' + str(M0_best_cv_score_R2) + ' +/- ' + str(M0_best_cv_result[['std_test_R2']].values[0]))
+        print('best parameters found: ' + str(M0_model.best_params_))
+
+        M0_Y_pred = M0_model.predict(X_test[['SEX', 'AGE']])
+
+        pcc_corr, pcc_p_val = pearsonr(M0_Y_pred, Y_test)  # pearson correlation coefficient (PCC)
+        print(f'pearson correlation coefficient (PCC) = {pcc_corr}, p-value for testing non-correlation = {pcc_p_val}')
+
+        M0_test_score_R2 = M0_model.score(X_test[['SEX', 'AGE']], Y_test)
+        print(f'M0 test score R2: {M0_test_score_R2}')
+        M0_test_score_MSE = mean_squared_error(Y_test, M0_Y_pred)
+        print(f'M0 test score MSE: {M0_test_score_MSE}')
+        M0_test_score_EV = explained_variance_score(Y_test, M0_Y_pred)
+        print(f'M0 test score EV: {M0_test_score_EV}')
+
+        # ------------------------------------
+        # model M1 (sex, age, PC(WBGE))
+        # ------------------------------------
+        print(f'------------------- lr M1 (sex, age, PC(WBGE)): {tissue} -----------------------')
+        M1_filename = f'output/model/lr_M1_model_71sf_{tissue}.sav'
+
+        M1_model = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, n_jobs=None, refit='R2', cv=cv, verbose=4, return_train_score=False)
+        M1_model.fit(X_train, Y_train)
+        joblib.dump(M1_model, M1_filename)
+
+        M1_cv_results = pd.DataFrame(M1_model.cv_results_)
+        print('M1 cv results:')
+        print(M1_cv_results)
+        M1_best_cv_result = M1_cv_results.loc[M1_cv_results['rank_test_R2'] == 1]
+        print('M1 best cv result:')
+        print(M1_best_cv_result)
+        M1_best_cv_score_R2 = M1_best_cv_result[['mean_test_R2']].values[0]
+        print('M1 best cv score R2: ' + str(M1_best_cv_score_R2) + ' +/- ' + str(M1_best_cv_result[['std_test_R2']].values[0]))
+        print('best parameters found: ' + str(M1_model.best_params_))
+
+        M1_y_pred = M1_model.predict(X_test[['SEX', 'AGE']])
+
+        pcc_corr, pcc_p_val = pearsonr(M1_y_pred, Y_test.values.ravel())  # pearson correlation coefficient (PCC)
+        print(f'pearson correlation coefficient (PCC) = {pcc_corr}, p-value for testing non-correlation = {pcc_p_val}')
+
+        M1_test_score_R2 = M1_model.score(X_test[['SEX', 'AGE']], Y_test)
+        print(f'M1 test score R2: {M1_test_score_R2}')
+        M1_test_score_MSE = mean_squared_error(Y_test, M1_y_pred)
+        print(f'M1 test score MSE: {M1_test_score_MSE}')
+        M1_test_score_EV = explained_variance_score(Y_test, M1_y_pred)
+        print(f'M1 test score EV: {M1_test_score_EV}')
+
+        # ------------------------------------
+        # plot performance (R2, MSE, EV) of M0 and M1
+        # ------------------------------------
+        labels = ['R2', 'EV', 'MSE']
+        M0_scores = [M0_test_score_R2, M0_test_score_EV, M0_test_score_MSE]
+        M1_scores = [M1_test_score_R2, M1_test_score_EV, M1_test_score_MSE]
+        x = np.arange(len(labels))  # the label locations
+        width = 0.2  # the width of the bars
+        fig, ax = plt.subplots()
+        ax.bar(x - width / 2, M0_scores, width, label='baseline model M0')
+        ax.bar(x + width / 2, M1_scores, width, label='model M1')
+        ax.set_ylabel('Performance')
+        ax.set_title(f'Performance of lr models for {tissue}')
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels)
+        ax.legend()
+        fig.tight_layout()
+        plt.savefig(f'output/fig/performance_lr_models_{tissue}.png')
+        plt.show()
+
+
+'''
+def run(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
+    (tissue_2_wb_tissue_df, tissue_2_tissue_specific_genes, sf_ensembl_ids, pca) = wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca
+    tissue_2_model = {}
+    # ------------------------------------
+    # for each splicing factor, perform nested cross validation, store best model for it in sf_2_model {sf: model}
+    # ------------------------------------
+    for tissue in tissue_2_wb_tissue_df:
+        df = tissue_2_wb_tissue_df[tissue]
+        # ------------------------------------
+        # load data
+        # ------------------------------------
+        #y = df.loc[:, -1]  # ensembl_id_heart column
+        Y = df[[*sf_ensembl_ids]]
+        ##print(np.sum(y.isna()))  # test
+        #X = df.iloc[:, :-1]  # all column except the last one
+        X = df.drop([*sf_ensembl_ids], axis=1)
+        ##print(np.sum(X.isna()))  # test
+        
+        ### ------------------------------------
+        ### inner cv, for parameter tuning
+        ### -----------------------------------
+        ##cv_inner = KFold(n_splits=n_folds, shuffle=True, random_state=0)
+        ##alphas = np.logspace(-4, 0.5, 100)  # create a list of 100 candidate values for the alpha parameter, interval [0.0001 - 3.16]
+        ##tuned_parameters = [{'alpha': alphas}]
+        ##best_lasso_model = Lasso(alpha=1.0, random_state=0, max_iter=10000)
+        ##clf = GridSearchCV(estimator=best_lasso_model, param_grid=tuned_parameters, cv=cv_inner, refit=True)
+        ##clf.fit(X, y)
+        ##print(clf.cv_results_)
+        ### ------------------------------------
+        ### outer cv, for model evaluation
+        ### -----------------------------------
+        ##cv_outer = KFold(n_splits=n_folds, shuffle=True, random_state=0)
+        ##scores = cross_val_score(clf, X, y, cv=cv_outer)
+        ##print('Score: %.3f (%.3f)' % (np.mean(scores), np.std(scores)))
+        ### -----------------------------------
+        ### plot validation curve
+        ### -----------------------------------
+        ##plot_validation_curve(clf, X, y, param_name='alpha', param_range=alphas)
+
+
+##def plot_curve(ticks, train_scores, test_scores):
+    ##train_scores_mean = -1 * np.mean(train_scores, axis=1)
+    ##train_scores_std = -1 * np.std(train_scores, axis=1)
+    ##test_scores_mean = -1 * np.mean(test_scores, axis=1)
+    ##test_scores_std = -1 * np.std(test_scores, axis=1)
+    ##plt.figure()
+    ##plt.fill_between(ticks, train_scores_mean - train_scores_std, train_scores_mean + train_scores_std, alpha=0.1, color="b")
+    ##plt.fill_between(ticks, test_scores_mean - test_scores_std, test_scores_mean + test_scores_std, alpha=0.1, color="r")
+    ##plt.plot(ticks, train_scores_mean, 'b-', label='Training score')
+    ##plt.plot(ticks, test_scores_mean, 'r-', label='Test score')
+    ##plt.legend(fancybox=True, facecolor='w')
+    ##return plt.gca()
+
+
+##def plot_validation_curve(clf, X, y, param_name, param_range):
+    ##plt.xkcd()
+    ##ax = plot_curve(param_range, *validation_curve(clf, X, y, cv=n_folds, param_name=param_name, param_range=param_range, n_jobs=-1))
+    ##ax.set_title('Validation Curve with Lasso')
+    ##ax.set_xticklabels([])
+    ##ax.set_yticklabels([])
+    ##ax.set_ylabel('Error')
+    ##ax.set_xlabel(r'$\alpha$')
+    ###ax.set_xlabel('Model complexity')
+    ###ax.set_xlim(2,12)
+    ###ax.set_ylim(-0.97, -0.83)
+    ###ax.text(9, -0.94, 'Overfitting', fontsize=22)
+    ###ax.text(3, -0.94, 'Underfitting', fontsize=22)
+    ###ax.axvline(7, ls='--')
+    ##plt.tight_layout()
+
+        
+        ### ------------------------------------
+        ### Principal Component Analysis
+        ### ------------------------------------
+        ##pca = PCA(n_components=0.99, random_state=0)
+        ##X = pca.fit_transform(X)
+        ##print(f'PCA: n_components_={pca.n_components_}\n')
+        
+        # ------------------------------------
+        # prepare some variables
+        # ------------------------------------
+        k_fold = KFold(n_splits=n_folds, shuffle=True)#, random_state=0)
+        alphas = np.logspace(-5, 0.8, 50)
         # ------------------------------------
         # nested cross validation, inner cv
         # ------------------------------------
-        lasso_cv = LassoCV(alphas=alphas, random_state=0, max_iter=1000, cv=k_fold)
+        #lasso_cv = LassoCV(alphas=alphas, max_iter=2000, cv=k_fold)#, random_state=0)
+        lasso_cv = MultiTaskLassoCV(alphas=alphas, max_iter=2000, cv=k_fold, random_state=0)
         # ------------------------------------
         # nested cross validation, outer cv
         # ------------------------------------
-        '''
-        for k, (train, test) in enumerate(k_fold.split(X, y)):
-            lasso_cv.fit(X[train], y[train])
-            print("[fold {0}] alpha: {1:.5f}, score: {2:.5f}".
-                  format(k, lasso_cv.alpha_, lasso_cv.score(X[test], y[test])))
-        '''
-        cv_results = cross_validate(lasso_cv, X, y, cv=k_fold, return_estimator=True)
+        
+        ##for k, (train, test) in enumerate(k_fold.split(X, y)):
+            ##lasso_cv.fit(X[train], y[train])
+            ##print("[fold {0}] alpha: {1:.5f}, score: {2:.5f}".
+                  ##format(k, lasso_cv.alpha_, lasso_cv.score(X[test], y[test])))
+        
+        cv_results = cross_validate(lasso_cv, X, Y, cv=k_fold, return_estimator=True)  # 15 min
+        print(cv_results)  # test
         # ------------------------------------
         # nested cross validation, results
         # ------------------------------------
-        scores = cv_results["test_score"]
-        print(f"Accuracy score by cross-validation combined with hyperparameters search:\n{scores.mean():.3f} +/- {scores.std():.3f}")
-
-        plt.plot(range(len(cv_results['estimator'])), scores)  # plotting test scores
-        plt.axhline(y=np.mean(scores), linestyle='--', color='grey')
-        plt.xlabel('estimator')
-        plt.ylabel('test_score')
-        plt.show()
-
         # The hyperparameters on each fold are potentially different since we nested the grid-search in the cross-validation. Thus, checking the variation of the hyperparameters across folds should also be analyzed.
-        best_alphas = list()
+        #best_alphas = list()
         for fold_idx, estimator in enumerate(cv_results["estimator"]):
             print(f"Best parameter found on fold #{fold_idx + 1}")
             print(f"{estimator.alpha_}")
-            best_alphas.append(estimator.alpha_)
+            #best_alphas.append(estimator.alpha_)
         # Obtaining models with unstable hyperparameters would be an issue in practice. Indeed, it would become difficult to set them.
 
-        # ------------------------------------
-        # plotting learning curves
-        # ------------------------------------
-        fig, axes = plt.subplots(3, 2, figsize=(10, 15))
-        title = "Learning Curves (Lasso Regression)"
-        # Cross validation with 100 iterations to get smoother mean test and train score curves, each time with 20% data randomly selected as a validation set.
-        cv = ShuffleSplit(n_splits=100, test_size=0.2, random_state=0)
-        lasso_model = Lasso(alpha=np.mean(best_alphas), random_state=0, max_iter=1000)
-        utils.plot_learning_curve(lasso_model, title, X, y, axes=axes[:, 0], ylim=(0.7, 1.01), cv=cv, n_jobs=4)
+        fit_time = cv_results['fit_time']  # The time for fitting the estimator on the train set for each cv split.
+        score_time = cv_results['score_time']
+        test_scores = cv_results['test_score']
+        print(f"Mean accuracy score by cross-validation combined with hyperparameters search:\n{test_scores.mean():.3f} +/- {test_scores.std():.3f}")
+
+        # plotting test scores
+        plt.figure(1)
+        plt.plot(range(len(cv_results['estimator'])), test_scores, color='red')
+        plt.axhline(y=np.mean(test_scores), linestyle='--', color='grey')
+        plt.xlabel('estimator')
+        plt.ylabel('test_score')
+        plt.axis('tight')
+        plt.savefig('output/test_scores.png')
+
+        # plotting fit time and score time
+        plt.figure(2)
+        plt.plot(range(len(cv_results['estimator'])), fit_time, color='blue', label='fit_time')
+        plt.plot(range(len(cv_results['estimator'])), score_time, color='green', label='score_time')
+        #plt.axhline(y=np.mean(fit_time), linestyle='--', color='grey')
+        plt.xlabel('estimator')
+        plt.ylabel('time')
+        plt.legend()
+        plt.axis('tight')
+        plt.savefig('output/fit_time_and_score_time.png')
+
+        
+        ### plotting score time
+        ##plt.figure(3)
+        ##plt.plot(range(len(cv_results['estimator'])), score_time, color='green')
+        ##plt.axhline(y=np.mean(score_time), linestyle='--', color='grey')
+        ##plt.xlabel('estimator')
+        ##plt.ylabel('score_time')
+        ##plt.axis('tight')
+        
         plt.show()
+        # ------------------------------------
+        # built the best model with best hyperparameters (with highest test_score)
+        # ------------------------------------
+        #best_alpha = cv_results['estimator'][np.argmax(cv_results['test_score'])].alpha_
+        #best_lasso_model = Lasso(alpha=best_alpha, random_state=0, max_iter=1000)
+        best_lasso_model = cv_results['estimator'][np.argmax(test_scores)]
+        print(f'best model with alpha = {best_lasso_model.alpha_}, test_score = {np.max(test_scores)}')
+        
+        ### ------------------------------------
+        ### plotting learning curves
+        ### ------------------------------------
+        ###fig, axes = plt.subplots(3, 2, figsize=(10, 15))
+        ##title = "Learning Curves (Lasso Regression) for tissue "+tissue
+        ### Cross validation with 100 iterations to get smoother mean test and train score curves, each time with 20% data randomly selected as a validation set.
+        ##cv = ShuffleSplit(n_splits=10, test_size=0.2)#, random_state=0)
+        ###best_lasso_model = Lasso(alpha=np.mean(best_alphas), random_state=0, max_iter=1000)
+        ##utils.plot_learning_curve(best_lasso_model, title, X, Y, cv=cv, n_jobs=2)  # 17 min till here
+        ##plt.show()
+        
+        # ------------------------------------
+        # save the best model for this splicing factor in dictionary sf_2_model
+        # ------------------------------------
+        tissue_2_model[tissue] = best_lasso_model
+'''
