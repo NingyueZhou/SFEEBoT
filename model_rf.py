@@ -8,6 +8,8 @@ from sklearn.model_selection import KFold, train_test_split
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, explained_variance_score
 import joblib
+import seaborn as sns
+sns.set_context("paper")#, font_scale = 0.5)
 import pandas as pd
 pd.set_option('display.max_columns', None)  # show all columns
 pd.set_option('display.max_rows', None)  # show all rows
@@ -17,7 +19,7 @@ n_folds = 5
 five_random_sf = ['ENSG00000115875', 'ENSG00000149187', 'ENSG00000071626', 'ENSG00000048740', 'ENSG00000102081']
 
 
-def run_single_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
+def run_single_sf_pca(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
     (tissue_2_wb_tissue_df, tissue_2_tissue_specific_genes, sf_ensembl_ids, sf_ensembl_2_name, pca) = wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca
 
     for tissue in tissue_2_wb_tissue_df:
@@ -48,7 +50,7 @@ def run_single_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
             # baseline model M0 (sex, age)
             # ------------------------------------
             print(f'------------------- rf M0 (sex, age) : {tissue} : {sf_ensembl_2_name[sf_ensembl]} -----------------------')
-            M0_filename = f'output/model/rf_M0_model_{tissue}_{sf_ensembl_2_name[sf_ensembl]}.sav'
+            M0_filename = f'/nfs/home/students/ge52qoj/SFEEBoT/output/model/rf_M0_model_{tissue}_{sf_ensembl_2_name[sf_ensembl]}.sav'
 
             M0_model = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, n_jobs=None, refit='R2', cv=cv, verbose=False, return_train_score=False)#verbose=4
             M0_model.fit(X_train[['SEX', 'AGE']], y_train)
@@ -80,7 +82,7 @@ def run_single_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
             # model M1 (sex, age, PC(WBGE))
             # ------------------------------------
             print(f'------------------- rf M1 (sex, age, PC(WBGE)) : {tissue} : {sf_ensembl_2_name[sf_ensembl]}-----------------------')
-            M1_filename = f'output/model/rf_M1_model_{tissue}_{sf_ensembl_2_name[sf_ensembl]}.sav'
+            M1_filename = f'/nfs/home/students/ge52qoj/SFEEBoT/output/model/rf_M1_model_{tissue}_{sf_ensembl_2_name[sf_ensembl]}.sav'
 
             M1_model = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, n_jobs=None, refit='R2', cv=cv, verbose=False, return_train_score=False)#verbose=4
             M1_model.fit(X_train, y_train)
@@ -126,7 +128,7 @@ def run_single_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
             ax.set_xticklabels(labels)
             ax.legend()
             fig.tight_layout()
-            plt.savefig(f'output/fig/performance_rf_models_{sf_ensembl_2_name[sf_ensembl]}_{tissue}.png')
+            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/performance_rf_models_{sf_ensembl_2_name[sf_ensembl]}_{tissue}.png')
             plt.show()
             '''
             # ------------------------------------

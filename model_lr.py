@@ -14,6 +14,7 @@ from sklearn.decomposition import PCA
 from sklearn.inspection import permutation_importance
 from scipy.stats import pearsonr, t, ttest_rel
 import seaborn as sns
+sns.set_context("paper")#, font_scale = 0.5)
 #from statsmodels.formula.api import ols
 #from mlxtend.evaluate import paired_ttest_5x2cv
 import utils
@@ -27,7 +28,7 @@ n_folds = 5
 #five_random_sf = ['ENSG00000115875', 'ENSG00000149187', 'ENSG00000071626', 'ENSG00000048740', 'ENSG00000102081']
 
 
-def run_single_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
+def run_single_sf_pca(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
     #(tissue_2_wb_tissue_df, tissue_2_tissue_specific_genes, sf_ensembl_ids, sf_ensembl_2_name, pca) = wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca
     (tissue_2_wb_tissue_df, tissue_2_tissue_specific_genes, sf_ensembl_ids, sf_ensembl_2_name, remained_genes, all_gene_ensembl_id_2_name, pca) = wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca
     tissue_2_result_df = {}
@@ -58,7 +59,8 @@ def run_single_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
             # load data, split into train and test set
             # ------------------------------------
             y = df[[sf_ensembl]]
-            X = df.drop([*sf_ensembl_ids], axis=1)
+            #X = df.drop([*sf_ensembl_ids], axis=1)
+            X = df.loc[:,~df.columns.str.contains(sf_ensembl)]  # drop sf_ensembl in gene expressions & psi events
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=0, shuffle=True)
             # ------------------------------------
             # prepare some variables
@@ -75,7 +77,7 @@ def run_single_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
             # baseline model M0 (sex, age)
             # ------------------------------------
             print(f'------------------- lr M0 (sex, age) : {tissue} : {sf_ensembl_2_name[sf_ensembl]} -----------------------')
-            #M0_filename = f'output/model/lr_M0_model_{tissue}_{sf_ensembl_2_name[sf_ensembl]}.sav'
+            #M0_filename = f'/nfs/home/students/ge52qoj/SFEEBoT/output/model/lr_M0_model_{tissue}_{sf_ensembl_2_name[sf_ensembl]}.sav'
             M0_model = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, n_jobs=None, refit=True, cv=cv_inner, verbose=False, return_train_score=False)#verbose=4, refit='R2'
             #M0_model.fit(X_train[['SEX', 'AGE']], y_train)
             R2_scores_nestCV_M0 = cross_val_score(M0_model, X_train[['SEX', 'AGE']], y_train, cv=cv_outer, scoring=scoring)
@@ -108,7 +110,7 @@ def run_single_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
             # model M1 (sex, age, PC(WBGE))
             # ------------------------------------
             print(f'------------------- lr M1 (sex, age, PC(WBGE)) : {tissue} : {sf_ensembl_2_name[sf_ensembl]}-----------------------')
-            #M1_filename = f'output/model/lr_M1_model_{tissue}_{sf_ensembl_2_name[sf_ensembl]}.sav'
+            #M1_filename = f'/nfs/home/students/ge52qoj/SFEEBoT/output/model/lr_M1_model_{tissue}_{sf_ensembl_2_name[sf_ensembl]}.sav'
             M1_model = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, n_jobs=None, refit=True, cv=cv_inner, verbose=False, return_train_score=False)#verbose=4, refit='R2'
             M1_model.fit(X_train, y_train)
             R2_scores_nestCV_M1 = cross_val_score(M1_model, X_train, y_train, cv=cv_outer, scoring=scoring)
@@ -154,7 +156,7 @@ def run_single_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
             ax.set_xticklabels(labels)
             ax.legend()
             fig.tight_layout()
-            plt.savefig(f'output/fig/performance_lr_models_{sf_ensembl_2_name[sf_ensembl]}_{tissue}.png')
+            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/performance_lr_models_{sf_ensembl_2_name[sf_ensembl]}_{tissue}.png')
             plt.show()
             '''
             # ------------------------------------
@@ -208,9 +210,9 @@ def run_single_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
             ax.set_title(f"lr M1 top5 feature importances {sf_ensembl_2_name[sf_ensembl]} in {tissue}")
             #fig.tight_layout()
             if '/' in sf_ensembl_2_name[sf_ensembl]:
-                plt.savefig('output/fig/lr_r2_m1_top5_permu_featu_impo_{}_{}.png'.format(tissue, sf_ensembl_2_name[sf_ensembl].split('/')[0]))
+                plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fig/lr_r2_m1_top5_permu_featu_impo_{}_{}.png'.format(tissue, sf_ensembl_2_name[sf_ensembl].split('/')[0]))
             else:
-                plt.savefig(f'output/fig/lr_r2_m1_top5_permu_featu_impo_{tissue}_{sf_ensembl_2_name[sf_ensembl]}.png')
+                plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/lr_r2_m1_top5_permu_featu_impo_{tissue}_{sf_ensembl_2_name[sf_ensembl]}.png')
             plt.show()
 
             top_5_pca_features = []
@@ -249,7 +251,7 @@ def run_single_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
         result_df = pd.DataFrame(result_dict)
         #result_df['tissue'] = tissue
         tissue_2_result_df[tissue] = result_df
-    joblib.dump(tissue_2_result_df, 'output/result_lr.sav')
+    joblib.dump(tissue_2_result_df, '/nfs/home/students/ge52qoj/SFEEBoT/output/result_lr.sav')
     return tissue_2_result_df
 
 def analyse_result(tissue_2_result_df):
@@ -281,7 +283,7 @@ def analyse_result(tissue_2_result_df):
         plt.ylabel('R2 score')
         plt.title(f'Performance of M1 in {tissue} with std (lr)')
         plt.tight_layout()
-        plt.savefig(f'output/fig/lr_r2_m1_all_sf_bar_std_{tissue}.png')
+        plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/lr_r2_m1_all_sf_bar_std_{tissue}.png')
         plt.show()
         '''
         plt.figure(figsize=(14, 8))
@@ -292,7 +294,7 @@ def analyse_result(tissue_2_result_df):
         plt.ylabel('R2 score')
         plt.title(f'lr M1 performance in {tissue}')
         plt.tight_layout()
-        plt.savefig(f'output/fig/lr_r2_m1_all_sf_bar_{tissue}.png')
+        plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/lr_r2_m1_all_sf_bar_{tissue}.png')
         plt.show()
 
         print(f'------------------- tissue: {tissue} -----------------------')
@@ -308,7 +310,7 @@ def analyse_result(tissue_2_result_df):
         plt.ylabel('R2 score')
         plt.title(f'lr M1 performance in {tissue} on tissue specific SF')
         plt.tight_layout()
-        plt.savefig(f'output/fig/lr_r2_m1_tissue_speci_sf_bar_{tissue}.png')
+        plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/lr_r2_m1_tissue_speci_sf_bar_{tissue}.png')
         plt.show()
 
         print('M1 significant SF:')
@@ -323,7 +325,7 @@ def analyse_result(tissue_2_result_df):
         plt.ylabel('R2 score')
         plt.title(f'lr M1 performance in {tissue} on M1 significant SF')
         plt.tight_layout()
-        plt.savefig(f'output/fig/lr_r2_m1_tissue_m1_signif_bar_{tissue}.png')
+        plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/lr_r2_m1_tissue_m1_signif_bar_{tissue}.png')
         plt.show()
     # ------------------------------------
     # merge all result to one big table
@@ -338,7 +340,7 @@ def analyse_result(tissue_2_result_df):
     plt.xlabel('')
     plt.title('lr M1 performance of all SF')
     plt.tight_layout()
-    plt.savefig('output/fig/lr_r2_m1_vio_all_sf.png')
+    plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fig/lr_r2_m1_vio_all_sf.png')
     plt.show()
     # ------------------------------------
     # tissue specific SF only
@@ -353,7 +355,7 @@ def analyse_result(tissue_2_result_df):
     plt.xlabel('')
     plt.title('lr M1 performance of tissue specific SF')
     plt.tight_layout()
-    plt.savefig('output/fig/lr_r2_m1_vio_tissue_speci_sf.png')
+    plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fig/lr_r2_m1_vio_tissue_speci_sf.png')
     plt.show()
     # ------------------------------------
     # M1 significant SF only
@@ -368,12 +370,12 @@ def analyse_result(tissue_2_result_df):
     plt.xlabel('')
     plt.title('lr M1 performance of M1 significant SF')
     plt.tight_layout()
-    plt.savefig('output/fig/lr_r2_m1_vio_m1_signif_sf.png')
+    plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fig/lr_r2_m1_vio_m1_signif_sf.png')
     plt.show()
 
 
 '''
-def run_single_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
+def run_single_sf_pca(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
     (tissue_2_wb_tissue_df, tissue_2_tissue_specific_genes, sf_ensembl_ids, sf_ensembl_2_name, pca) = wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca
     tissue_2_results_df = {}
 
@@ -415,7 +417,7 @@ def run_single_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
             # baseline model M0 (sex, age)
             # ------------------------------------
             print(f'------------------- lr M0 (sex, age) : {tissue} : {sf_ensembl_2_name[sf_ensembl]} -----------------------')
-            # = f'output/model/lr_M0_model_{tissue}_{sf_ensembl_2_name[sf_ensembl]}.sav'
+            # = f'/nfs/home/students/ge52qoj/SFEEBoT/output/model/lr_M0_model_{tissue}_{sf_ensembl_2_name[sf_ensembl]}.sav'
 
             M0_model = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, n_jobs=None, refit='R2', cv=cv, verbose=False, return_train_score=False)#verbose=4
             M0_model.fit(X_train[['SEX', 'AGE']], y_train)
@@ -447,7 +449,7 @@ def run_single_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
             # model M1 (sex, age, PC(WBGE))
             # ------------------------------------
             print(f'------------------- lr M1 (sex, age, PC(WBGE)) : {tissue} : {sf_ensembl_2_name[sf_ensembl]}-----------------------')
-            #M1_filename = f'output/model/lr_M1_model_{tissue}_{sf_ensembl_2_name[sf_ensembl]}.sav'
+            #M1_filename = f'/nfs/home/students/ge52qoj/SFEEBoT/output/model/lr_M1_model_{tissue}_{sf_ensembl_2_name[sf_ensembl]}.sav'
 
             M1_model = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, n_jobs=None, refit='R2', cv=cv, verbose=False, return_train_score=False)#verbose=4
             M1_model.fit(X_train, y_train)
@@ -492,7 +494,7 @@ def run_single_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
             ###ax.set_xticklabels(labels)
             ###ax.legend()
             ###fig.tight_layout()
-            ###plt.savefig(f'output/fig/performance_lr_models_{sf_ensembl_2_name[sf_ensembl]}_{tissue}.png')
+            ###plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/performance_lr_models_{sf_ensembl_2_name[sf_ensembl]}_{tissue}.png')
             ###plt.show()
             
             # ------------------------------------
@@ -554,7 +556,7 @@ def run_single_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
         plt.ylabel('R2 score')
         plt.title(f'Performance of M1 in {tissue} with CI')
         plt.tight_layout()
-        plt.savefig(f'output/fig/r2_m1_all_sf_bar_ci_{tissue}.png')
+        plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/r2_m1_all_sf_bar_ci_{tissue}.png')
         plt.show()
 '''
 
@@ -578,12 +580,12 @@ def run_multi_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
         alphas = np.logspace(-2, 0.7, 10)
         param_grid = {'alpha': alphas}
         model = Lasso(max_iter=1000)
-        scoring = {'R2': 'r2', 'neg_MSE': 'neg_mean_squared_error', 'EV': 'explained_variance'}#, 'max_E':'max_error'}  # ValueError: Multioutput not supported in max_error
+        scoring = {'R2': 'r2', 'neg_MSE': 'neg_mean_squared_error', 'EV': 'explained_variance'}#, 'max_E':'max_error'}  # ValueError: Multi/nfs/home/students/ge52qoj/SFEEBoT/output not supported in max_error
         # ------------------------------------
         # baseline model M0 (sex, age)
         # ------------------------------------
         print(f'------------------- lr M0 (sex, age): {tissue} -----------------------')
-        M0_filename = f'output/model/lr_M0_model_71sf_{tissue}.sav'
+        M0_filename = f'/nfs/home/students/ge52qoj/SFEEBoT/output/model/lr_M0_model_71sf_{tissue}.sav'
 
         M0_model = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, n_jobs=None, refit='R2', cv=cv, verbose=4, return_train_score=False)
         M0_model.fit(X_train[['SEX', 'AGE']], Y_train)
@@ -615,7 +617,7 @@ def run_multi_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
         # model M1 (sex, age, PC(WBGE))
         # ------------------------------------
         print(f'------------------- lr M1 (sex, age, PC(WBGE)): {tissue} -----------------------')
-        M1_filename = f'output/model/lr_M1_model_71sf_{tissue}.sav'
+        M1_filename = f'/nfs/home/students/ge52qoj/SFEEBoT/output/model/lr_M1_model_71sf_{tissue}.sav'
 
         M1_model = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, n_jobs=None, refit='R2', cv=cv, verbose=4, return_train_score=False)
         M1_model.fit(X_train, Y_train)
@@ -660,7 +662,7 @@ def run_multi_sf(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
         ax.set_xticklabels(labels)
         ax.legend()
         fig.tight_layout()
-        plt.savefig(f'output/fig/performance_lr_models_{tissue}.png')
+        plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/performance_lr_models_{tissue}.png')
         plt.show()
 
 
@@ -787,7 +789,7 @@ def run(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
         plt.xlabel('estimator')
         plt.ylabel('test_score')
         plt.axis('tight')
-        plt.savefig('output/test_scores.png')
+        plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/test_scores.png')
 
         # plotting fit time and score time
         plt.figure(2)
@@ -798,7 +800,7 @@ def run(wb_sf_dfs_and_tissue_speci_genes_and_sf_ids_and_pca):
         plt.ylabel('time')
         plt.legend()
         plt.axis('tight')
-        plt.savefig('output/fit_time_and_score_time.png')
+        plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fit_time_and_score_time.png')
 
         
         ### plotting score time
