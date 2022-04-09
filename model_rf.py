@@ -5,6 +5,7 @@ import math
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.stats as stats
+from collections import Counter
 from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import KFold, train_test_split
 from sklearn.model_selection import cross_val_score
@@ -71,9 +72,8 @@ def run_single_sf_pca(wb_sf_dfs):
             #cv = KFold(n_splits=n_folds, shuffle=True, random_state=0)
             cv_inner = KFold(n_splits=n_folds, shuffle=True, random_state=0)
             cv_outer = KFold(n_splits=n_folds, shuffle=True, random_state=0)
-            param_grid = {'max_depth': [5, 10],
-                          'max_features': ['log2', 'auto'],
-                          'n_estimators': [100, 300]}  # 'bootstrap': [True], 'min_samples_leaf': [1], 'min_samples_split': [2],
+            param_grid = {'max_depth': [10],
+                          'max_features': ['log2']}  # 'n_estimators': [100, 300], 'bootstrap': [True], 'min_samples_leaf': [1], 'min_samples_split': [2],
             model = RandomForestRegressor(random_state=0)
             #scoring = {'R2': 'r2', 'neg_MSE': 'neg_mean_squared_error', 'EV': 'explained_variance'}
             scoring = 'r2'
@@ -236,7 +236,7 @@ def analyse_result_pca(tissue_2_result_df):
     # violin plot, M1 performance of all SF, tissue wise
     # ------------------------------------
     plt.figure(figsize=(10, 8))
-    sns.violinplot(x='tissue', y='M1_mean_R2_score', data=big_result_df)
+    sns.violinplot(x='tissue', y='M1_mean_R2_score', data=big_result_df, cut=0)
     plt.ylabel('R2 score')
     plt.xlabel('')
     plt.title('rf M1 performance of all SF (PCA)')
@@ -251,7 +251,7 @@ def analyse_result_pca(tissue_2_result_df):
     # violin plot, M1 performance of tissue specific SF, tissue wise
     # ------------------------------------
     plt.figure(figsize=(10, 8))
-    sns.violinplot(x='tissue', y='M1_mean_R2_score', data=big_result_df_tissue_speci_sf)
+    sns.violinplot(x='tissue', y='M1_mean_R2_score', data=big_result_df_tissue_speci_sf, cut=0)
     plt.ylabel('R2 score')
     plt.xlabel('')
     plt.title('rf M1 performance of tissue specific SF (PCA)')
@@ -266,7 +266,7 @@ def analyse_result_pca(tissue_2_result_df):
     # violin plot, M1 performance of M1 significant SF, tissue wise
     # ------------------------------------
     plt.figure(figsize=(10, 8))
-    sns.violinplot(x='tissue', y='M1_mean_R2_score', data=big_result_df_M1_signif_sf)
+    sns.violinplot(x='tissue', y='M1_mean_R2_score', data=big_result_df_M1_signif_sf, cut=0)
     plt.ylabel('R2 score')
     plt.xlabel('')
     plt.title('rf M1 performance of M1 significant SF (PCA)')
@@ -290,7 +290,7 @@ def run_single_sf_cluster(wb_sf_dfs):
     tissue_2_M_df = {}
 
     for tissue in tissue_2_wb_tissue_df:
-        print(f'\n------------------- tissue: {tissue}, rf M (CF + TPM + PSI)-----------------------\n')
+        print(f'\n------------------- tissue: {tissue}, rf M (CF + NORM + PSI)-----------------------\n')
         sf_name_list = []
         M_mean_R2_list = []
         M_std_R2_list = []
@@ -318,13 +318,12 @@ def run_single_sf_cluster(wb_sf_dfs):
             # prepare some variables
             # ------------------------------------
             cv = KFold(n_splits=n_folds, shuffle=True, random_state=0)
-            param_grid = {'max_depth': [5, 10],
-                          'max_features': ['log2', 'auto'],
-                          'n_estimators': [100, 300]}  # 'bootstrap': [True], 'min_samples_leaf': [1], 'min_samples_split': [2],
+            param_grid = {'max_depth': [10],
+                          'max_features': ['log2']}  # 'n_estimators': [100, 300], 'bootstrap': [True], 'min_samples_leaf': [1], 'min_samples_split': [2],
             model = RandomForestRegressor(random_state=0)
             scoring = 'r2'
             # ------------------------------------
-            # selection model M (CF + TPM + PSI) -> select SF with model M R2 score >= R2_threshold; for each SF, select (???) most important feature TPMs & PSIs
+            # selection model M (CF + NORM + PSI) -> select SF with model M R2 score >= R2_threshold; for each SF, select (???) most important feature NORMs & PSIs
             # ------------------------------------
             M_model = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, n_jobs=None, refit=True, cv=cv, verbose=False, return_train_score=False)#verbose=4
             M_model.fit(X, y)
@@ -403,13 +402,20 @@ def run_single_sf_cluster(wb_sf_dfs):
     #tissue_2_M_df = joblib.load('/nfs/home/students/ge52qoj/SFEEBoT/output/rf_tissue_2_M_df.sav')  # can be removed later
 
     print('------------------- M Result analysis (rf) -----------------------')
+    tissue_RBM20 = []
+    M_mean_R2_RBM20 = []
+    M_95_ci_RBM20 = []
+
     for tissue in tissue_2_M_df:
         M_df = tissue_2_M_df[tissue]
+        if M_df.empty == False and M_df.M_select_coef_threshold.dropna().empty == False:
+            print(f'mean(M_select_coef_threshold) in {tissue} = {M_df.M_select_coef_threshold.mean()}')
+        #continue
         # ------------------------------------
         # bar plot with std, R2 score of M in each tissue for all 67 sf
         # ------------------------------------
         plt.figure(figsize=(14, 8))
-        sns.barplot(x='sf_name', y='M_mean_R2', data=M_df, palette='Oranges', capsize=0, ci=None, yerr=M_df['M_95_ci'])
+        sns.barplot(x='sf_name', y='M_mean_R2', data=M_df, palette='RdPu', capsize=0, ci=None, yerr=M_df['M_95_ci'])
         plt.xticks(rotation=90)
         plt.ylabel('R2 score')
         plt.title(f'R2 scores of rf M in {tissue}')
@@ -417,6 +423,23 @@ def run_single_sf_cluster(wb_sf_dfs):
         plt.tight_layout()
         plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/rf/rf_r2_M_all_sf_bar_{tissue}.png')
         plt.show()
+
+        tissue_RBM20.append(M_df.loc[M_df['sf_name'] == 'RBM20', 'tissue'].values.tolist()[0])
+        M_mean_R2_RBM20.append(M_df.loc[M_df['sf_name'] == 'RBM20', 'M_mean_R2'].values.tolist()[0])
+        M_95_ci_RBM20.append(M_df.loc[M_df['sf_name'] == 'RBM20', 'M_95_ci'].values.tolist()[0])
+
+    M_dict_RBM20 = {'tissue': tissue_RBM20, 'M_mean_R2': M_mean_R2_RBM20, 'M_95_ci_RBM20': M_95_ci_RBM20}
+    M_df_RBM20 = pd.DataFrame(M_dict_RBM20)
+    print(M_df_RBM20)
+    plt.figure(figsize=(14, 8))
+    sns.barplot(x='tissue', y='M_mean_R2', data=M_df_RBM20, palette='Blues', capsize=0, ci=None,
+                yerr=M_df_RBM20['M_95_ci_RBM20'])
+    plt.xticks(rotation=90)
+    plt.ylabel('R2 score')
+    plt.title(f'R2 scores of rf M RBM20 across tissues')
+    plt.tight_layout()
+    plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/rf/rf_r2_M_RBM20_bar.png')
+    plt.show()
 
     print(f'\n------------------- Training M0, M1, M2 -----------------------\n')
     tissue_2_result_df = {}
@@ -484,9 +507,8 @@ def run_single_sf_cluster(wb_sf_dfs):
             #          M_df.loc[M_df['sf_name'] == sf_name, 'M_best_params'].values[0] + 0.1,
             #          M_df.loc[M_df['sf_name'] == sf_name, 'M_best_params'].values[0] + 0.01,
             #          M_df.loc[M_df['sf_name'] == sf_name, 'M_best_params'].values[0] + 0.001]
-            param_grid = {'max_depth': [5, 10],
-                          'max_features': ['log2', 'auto'],
-                          'n_estimators': [100, 300]}  # 'bootstrap': [True], 'min_samples_leaf': [1], 'min_samples_split': [2],
+            param_grid = {'max_depth': [10],
+                          'max_features': ['log2']}  # 'n_estimators': [100, 300], 'bootstrap': [True], 'min_samples_leaf': [1], 'min_samples_split': [2],
             model = RandomForestRegressor(random_state=0)
             scoring = 'r2'
             # ------------------------------------
@@ -600,8 +622,402 @@ def run_single_sf_cluster(wb_sf_dfs):
         result_df = pd.DataFrame(result_dict)
         tissue_2_result_df[tissue] = result_df
 
-    return tissue_2_result_df
+    return tissue_2_result_df, sf_ensembl_2_name, all_gene_ensembl_id_2_name
 
 
-def analyse_result_cluster(tissue_2_result_df):
-    None
+def analyse_result_cluster(results):
+    (tissue_2_result_df, sf_ensembl_2_name, all_gene_ensembl_id_2_name) = results
+
+    M2_performance_threshold = 0.3
+
+    print('------------------- Result analysis (rf, cluster) -----------------------')
+    #'''
+    for tissue in tissue_2_result_df:
+        print(f'------------------- tissue: {tissue} -----------------------')
+        result_df = pd.DataFrame(tissue_2_result_df[tissue])
+        #result_df.dropna(inplace=True)
+        if result_df.empty == True:
+            print(f'reult_df of {tissue} is empty, all SFs are discarded because M R2 score < M_mean_R2_threshold')
+        else:
+            result_df['M0_95_ci'] = result_df['M0_R2_std'].apply(calc_95_confidence_interval, samp_size=n_folds)
+            result_df['M1_95_ci'] = result_df['M1_R2_std'].apply(calc_95_confidence_interval, samp_size=n_folds)
+            result_df['M2_95_ci'] = result_df['M2_R2_std'].apply(calc_95_confidence_interval, samp_size=n_folds)
+            result_df.drop_duplicates(inplace=True, subset=['sf_name'])
+            result_df.reset_index(drop=True, inplace=True)
+            print(f'overall_mean_M0_R2_{tissue} = {result_df.M0_mean_R2_score.mean()}, overall_mean_M0_95_ci_{tissue} = {result_df.M0_95_ci.mean()}')
+            print(f'overall_mean_M1_R2_{tissue} = {result_df.M1_mean_R2_score.mean()}, overall_mean_M1_95_ci_{tissue} = {result_df.M1_95_ci.mean()}')
+            print(f'overall_mean_M2_R2_{tissue} = {result_df.M2_mean_R2_score.mean()}, overall_mean_M2_95_ci_{tissue} = {result_df.M2_95_ci.mean()}')
+            print(result_df[['sf_name', 'tissue', 'tissue_specific', 'M0_mean_R2_score', 'M0_95_ci', 'M1_mean_R2_score', 'M1_95_ci', 'M2_mean_R2_score', 'M2_95_ci', 'p_values_M1_M0', 'M1_significant_M0', 'p_values_M2_M1', 'M2_significant_M1', 'p_values_M2_M0', 'M2_significant_M0']])
+            result_df_M0 = result_df[['sf_name', 'tissue_specific', 'M1_significant_M0', 'M2_significant_M1', 'M2_significant_M0', 'M0_mean_R2_score', 'M0_95_ci']]
+            result_df_M0.rename(columns={'M0_mean_R2_score': 'mean_R2_score', 'M0_95_ci': '95_ci'}, inplace=True)
+            result_df_M0['model'] = 'M0'
+            result_df_M1 = result_df[['sf_name', 'tissue_specific', 'M1_significant_M0', 'M2_significant_M1', 'M2_significant_M0', 'M1_mean_R2_score', 'M1_95_ci']]
+            result_df_M1.rename(columns={'M1_mean_R2_score': 'mean_R2_score', 'M1_95_ci': '95_ci'}, inplace=True)
+            result_df_M1['model'] = 'M1'
+            result_df_M2 = result_df[['sf_name', 'tissue_specific', 'M1_significant_M0', 'M2_significant_M1', 'M2_significant_M0', 'M2_mean_R2_score', 'M2_95_ci']]
+            result_df_M2.rename(columns={'M2_mean_R2_score': 'mean_R2_score', 'M2_95_ci': '95_ci'}, inplace=True)
+            result_df_M2['model'] = 'M2'
+            result_df_M012 = pd.concat([result_df_M0, result_df_M1, result_df_M2], ignore_index=True, axis=0)
+            # ------------------------------------
+            # bar plot with CI, R2 score of M0, M1, M2 in each tissue for all 67 sf
+            # ------------------------------------
+            plt.figure(figsize=(14, 8))
+            u = result_df_M012['sf_name'].unique()
+            x = np.arange(len(u))
+            subx = result_df_M012['model'].unique()
+            offsets = (np.arange(len(subx)) - np.arange(len(subx)).mean()) / (len(subx) + 1.)
+            width = np.diff(offsets).mean()
+            for i, gr in enumerate(subx):
+                dfg = result_df_M012[result_df_M012['model'] == gr]
+                plt.bar(x + offsets[i], dfg['mean_R2_score'].values, width=width,
+                        label="{} {}".format('model', gr), yerr=dfg['95_ci'].values)
+            plt.xlabel('SF name')
+            plt.ylabel('R2 score')
+            plt.xticks(x, u, rotation=90)
+            plt.legend()
+            plt.title(f'RF M0, M1, M2 performance in {tissue} (cluster)')
+            plt.tight_layout()
+            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/rf/rf_r2_m012_all_sf_bar_{tissue}_cluster.png')
+            plt.show()
+            # ------------------------------------
+            # bar plot with CI, R2 score of M0 in each tissue for all 67 sf
+            # ------------------------------------
+            plt.figure(figsize=(14, 8))
+            sns.barplot(x='sf_name', y='M0_mean_R2_score', data=result_df, palette='Blues', capsize=0, ci=None, yerr=result_df['M0_95_ci'])
+            plt.xticks(rotation=90)
+            plt.ylabel('R2 score')
+            plt.title(f'RF M0 performance in {tissue} (cluster)')
+            plt.tight_layout()
+            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/rf/rf_r2_m0_all_sf_bar_{tissue}_cluster.png')
+            plt.show()
+            # ------------------------------------
+            # bar plot with CI, R2 score of M1 in each tissue for all 67 sf
+            # ------------------------------------
+            plt.figure(figsize=(14, 8))
+            # print(result_df['M1_R2_std'].size)
+            sns.barplot(x='sf_name', y='M1_mean_R2_score', data=result_df, palette='Oranges', capsize=0, ci=None, yerr=result_df['M1_95_ci'])  # ci='sd'
+            plt.xticks(rotation=90)
+            plt.ylabel('R2 score')
+            plt.title(f'RF M1 performance in {tissue} (cluster)')
+            plt.tight_layout()
+            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/rf/rf_r2_m1_all_sf_bar_{tissue}_cluster.png')
+            plt.show()
+            # ------------------------------------
+            # bar plot with CI, R2 score of M2 in each tissue for all 67 sf
+            # ------------------------------------
+            plt.figure(figsize=(14, 8))
+            sns.barplot(x='sf_name', y='M2_mean_R2_score', data=result_df, palette='Greens', capsize=0, ci=None, yerr=result_df['M2_95_ci'])
+            plt.axhline(y=M2_performance_threshold, c='black', lw=1, linestyle='dashed')
+            plt.xticks(rotation=90)
+            plt.ylabel('R2 score')
+            plt.title(f'RF M2 performance in {tissue} (cluster)')
+            plt.tight_layout()
+            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/rf/rf_r2_m2_all_sf_bar_{tissue}_cluster.png')
+            plt.show()
+
+            if result_df[result_df['tissue_specific'] == 1].shape[0] > 0:
+                print('tissue specific SF:')
+                print(result_df[result_df['tissue_specific'] == 1].shape[0])
+                print(str(result_df[result_df['tissue_specific'] == 1].shape[0] / float(result_df.shape[0])) + f'% of the total SFs ({result_df.shape[0]}) in {tissue}')
+                print(result_df.loc[result_df['tissue_specific'] == 1, ['sf_name']])
+
+                df = result_df_M012[result_df_M012['tissue_specific'] == 1]
+                u = df['sf_name'].unique()
+                x = np.arange(len(u))
+                subx = df['model'].unique()
+                offsets = (np.arange(len(subx)) - np.arange(len(subx)).mean()) / (len(subx) + 1.)
+                width = np.diff(offsets).mean()
+                for i, gr in enumerate(subx):
+                    dfg = df[df['model'] == gr]
+                    plt.bar(x + offsets[i], dfg['mean_R2_score'].values, width=width,
+                            label="{} {}".format('model', gr), yerr=dfg['95_ci'].values)
+                plt.xlabel('SF name')
+                plt.ylabel('R2 score')
+                plt.xticks(x, u, rotation=90)
+                plt.legend()
+                plt.title(f'RF M0, M1, M2 performance of tissue specific SFs in {tissue} (cluster)')
+                plt.tight_layout()
+                plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/rf/rf_r2_m012_tissue_speci_sf_bar_{tissue}_cluster.png')
+                plt.show()
+
+                plt.figure(figsize=(14, 8))
+                sns.barplot(x='sf_name', y='M1_mean_R2_score', data=result_df[result_df['tissue_specific'] == 1], palette='Oranges', capsize=0, ci=None, yerr=result_df[result_df['tissue_specific'] == 1]['M1_95_ci'])
+                #plt.axhline(y=M2_performance_threshold, c='black', lw=1, linestyle='dashed')
+                plt.xticks(rotation=90)
+                plt.ylabel('R2 score')
+                plt.title(f'RF M1 performance in {tissue} on tissue specific SF (cluster)')
+                plt.tight_layout()
+                plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/rf/rf_r2_m1_tissue_speci_sf_bar_{tissue}_cluster.png')
+                plt.show()
+
+                plt.figure(figsize=(14, 8))
+                sns.barplot(x='sf_name', y='M2_mean_R2_score', data=result_df[result_df['tissue_specific'] == 1], palette='Greens', capsize=0, ci=None, yerr=result_df[result_df['tissue_specific'] == 1]['M2_95_ci'])
+                plt.axhline(y=M2_performance_threshold, c='black', lw=1, linestyle='dashed')
+                plt.xticks(rotation=90)
+                plt.ylabel('R2 score')
+                plt.title(f'RF M2 performance in {tissue} on tissue specific SF (cluster)')
+                plt.tight_layout()
+                plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/rf/rf_r2_m2_tissue_speci_sf_bar_{tissue}_cluster.png')
+                plt.show()
+
+            if result_df[result_df['M1_significant_M0'] == 1].shape[0] > 0:
+                print('M1 significant to M0 SF:')
+                print(result_df[result_df['M1_significant_M0'] == 1].shape[0])
+                print(result_df[result_df['M1_significant_M0'] == 1].shape[0] / float(result_df.shape[0]))
+                print(result_df.loc[result_df['M1_significant_M0'] == 1, ['sf_name']])
+
+                df = result_df_M012[result_df_M012['M1_significant_M0'] == 1]
+                u = df['sf_name'].unique()
+                x = np.arange(len(u))
+                subx = df['model'].unique()
+                offsets = (np.arange(len(subx)) - np.arange(len(subx)).mean()) / (len(subx) + 1.)
+                width = np.diff(offsets).mean()
+                for i, gr in enumerate(subx):
+                    dfg = df[df['model'] == gr]
+                    plt.bar(x + offsets[i], dfg['mean_R2_score'].values, width=width,
+                            label="{} {}".format('model', gr), yerr=dfg['95_ci'].values)
+                plt.xlabel('SF name')
+                plt.ylabel('R2 score')
+                plt.xticks(x, u, rotation=90)
+                plt.legend()
+                plt.title(f'RF M0, M1, M2 performance in {tissue} on M1 to M0 significant SF (cluster)')
+                plt.tight_layout()
+                plt.savefig(
+                    f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/rf/rf_r2_m012_sf_m1_signif_m0_bar_{tissue}_cluster.png')
+                plt.show()
+
+                plt.figure(figsize=(14, 8))
+                sns.set_style("whitegrid")
+                sns.barplot(x='sf_name', y='M1_mean_R2_score', data=result_df[result_df['M1_significant_M0'] == 1], palette='Reds', capsize=0, ci=None, yerr=result_df[result_df['M1_significant_M0'] == 1]['M1_95_ci'])
+                plt.xticks(rotation=90)
+                plt.ylabel('R2 score')
+                plt.title(f'RF M1 performance in {tissue} on M1 to M0 significant SF (cluster)')
+                plt.tight_layout()
+                plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/rf/rf_r2_m1_tissue_m0_signif_bar_{tissue}_cluster.png')
+                plt.show()
+
+            if result_df[result_df['M2_significant_M0'] == 1].shape[0] > 0:
+                print('M2 significant to M0 SF:')
+                print(result_df[result_df['M2_significant_M0'] == 1].shape[0])
+                print(result_df[result_df['M2_significant_M0'] == 1].shape[0] / float(result_df.shape[0]))
+                print(result_df.loc[result_df['M2_significant_M0'] == 1, ['sf_name']])
+
+                df = result_df_M012[result_df_M012['M2_significant_M0'] == 1]
+                u = df['sf_name'].unique()
+                x = np.arange(len(u))
+                subx = df['model'].unique()
+                offsets = (np.arange(len(subx)) - np.arange(len(subx)).mean()) / (len(subx) + 1.)
+                width = np.diff(offsets).mean()
+                for i, gr in enumerate(subx):
+                    dfg = df[df['model'] == gr]
+                    plt.bar(x + offsets[i], dfg['mean_R2_score'].values, width=width,
+                            label="{} {}".format('model', gr), yerr=dfg['95_ci'].values)
+                plt.xlabel('SF name')
+                plt.ylabel('R2 score')
+                plt.xticks(x, u, rotation=90)
+                plt.legend()
+                plt.title(f'RF M0, M1, M2 performance in {tissue} on M2 to M0 significant SF (cluster)')
+                plt.tight_layout()
+                plt.savefig(
+                    f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/rf/rf_r2_m012_sf_m2_signif_m0_bar_{tissue}_cluster.png')
+                plt.show()
+
+                plt.figure(figsize=(14, 8))
+                sns.set_style("whitegrid")
+                sns.barplot(x='sf_name', y='M2_mean_R2_score', data=result_df[result_df['M2_significant_M0'] == 1], palette='Reds', capsize=0, ci=None, yerr=result_df[result_df['M2_significant_M0'] == 1]['M2_95_ci'])
+                plt.axhline(y=M2_performance_threshold, c='black', lw=1, linestyle='dashed')
+                plt.xticks(rotation=90)
+                plt.ylabel('R2 score')
+                plt.title(f'RF M2 performance in {tissue} on M2 to M0 significant SF (cluster)')
+                plt.tight_layout()
+                plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/rf/rf_r2_m2_tissue_m0_signif_bar_{tissue}_cluster.png')
+                plt.show()
+
+            # ------------------------------------
+            # count important feature genes
+            # ------------------------------------
+            print(f'------------------- count important feature genes ({tissue}) -----------------------')
+            impo_genes_tissue = []
+            for sf_name in result_df['sf_name']:
+                print(f'------------------- important feature genes ({tissue}): {sf_name} -----------------------')
+                if len(result_df.loc[result_df['sf_name'] == sf_name, 'most_important_feature_genes'].values.tolist()[0]) == 0:
+                    print(f'There are NO important feature genes for {tissue}: {sf_name}')
+                else:
+                    impo_genes = result_df.loc[result_df['sf_name'] == sf_name, 'most_important_feature_genes'].values.tolist()[0]
+                    print(f'len(impo_genes)= {len(impo_genes)}')
+                    print(impo_genes)
+                    impo_genes_tissue += impo_genes
+
+            impo_genes_tissue_count = Counter(impo_genes_tissue).items()
+            impo_genes_tissue_count = pd.DataFrame(impo_genes_tissue_count, columns=['Gene', 'Count'])
+            #all_gene_ensembl_id_2_name = joblib.load('/nfs/home/students/ge52qoj/SFEEBoT/output/all_gene_ensembl_id_2_name.sav')
+            impo_genes_tissue_count.sort_values(by=['Count'], ascending=False, inplace=True)
+            top_50_genes = impo_genes_tissue_count.iloc[:50, :]
+            try:
+                top_50_genes['Gene'] = top_50_genes['Gene'].apply(lambda ensembl: all_gene_ensembl_id_2_name[ensembl])
+            except:
+                print('some ensembl id cannot be converted.')
+            print(f'------------------- top 50 important feature genes in {tissue}  -----------------------')
+            print(top_50_genes)
+
+            plt.figure(figsize=(8, 8))
+            sns.barplot(x='Count', y='Gene', data=top_50_genes, palette='Purples_r')
+            plt.title(f'RF occurrences of top 50 important feature genes in {tissue} (cluster)')
+            plt.tight_layout()
+            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/rf/rf_impo_feat_gene_count_bar_{tissue}_cluster.png')
+            plt.show()
+
+            # ------------------------------------
+            # Gene Set Enrichment Analysis (GSEA) for SFs with M2 performance >= 0.3
+            # ------------------------------------
+            print(f'------------------- Gene Set Enrichment Analysis (GSEA) for SFs with M2 performance >= {M2_performance_threshold} ({tissue}) -----------------------')
+            adjusted_p_value_cutoff = 0.5
+            orig_result_df_sf_numb = result_df.shape[0]
+
+            if result_df.loc[result_df['M2_mean_R2_score'] >= M2_performance_threshold].shape[0] == 0:
+                print(f'There are NO SFs with M2 performance >= {M2_performance_threshold} in {tissue}')
+            else:
+                result_df = result_df.loc[result_df['M2_mean_R2_score'] >= M2_performance_threshold]  # rows = 27 -> 12, heart-LV
+                print(f'\nIn {tissue}: orig_result_df_sf_numb = {orig_result_df_sf_numb}, after discard = {result_df.shape[0]}, discarded {orig_result_df_sf_numb - result_df.shape[0]} SFs with M2 R2 result < M2_performance_threshold = {M2_performance_threshold} ({(orig_result_df_sf_numb - result_df.shape[0]) / orig_result_df_sf_numb}%)')
+
+                print(f'------------------- whole tissue: {tissue} -------------------')
+                try:
+                    #sf_ensembl_2_name = joblib.load('/nfs/home/students/ge52qoj/SFEEBoT/output/sf_ensembl_2_name.sav')
+                    final_sfs = result_df['sf_name'].values.tolist()
+                    final_sfs_ensembl = [list(sf_ensembl_2_name.keys())[list(sf_ensembl_2_name.values()).index(name)] for name in final_sfs]
+                    with open(f'/nfs/home/students/ge52qoj/SFEEBoT/output/gene_list/rf_most_predictable_sfs_{tissue}.txt', 'w') as f:
+                        for gene in final_sfs_ensembl:
+                            f.write(gene + '\n')
+                    dataset = Dataset(name='hsapiens_gene_ensembl', host='http://www.ensembl.org')
+                    gene_ids_df = dataset.query(attributes=['ensembl_gene_id', 'external_gene_name'], filters={'link_ensembl_gene_id': final_sfs_ensembl})  # 'entrezgene_id', 'go_id'
+                    gene_ids_df.dropna(inplace=True)
+                    enr = gp.enrichr(gene_list=gene_ids_df['Gene name'].values.tolist(),
+                                     gene_sets='KEGG_2021_Human',
+                                     organism='Human',
+                                     description= f'rf_{tissue}',# + '_' + tissue,
+                                     outdir='/nfs/home/students/ge52qoj/SFEEBoT/output/enrichr_kegg',
+                                     cutoff=adjusted_p_value_cutoff,
+                                     no_plot=True)
+                    barplot(enr.res2d, title='KEGG_2021_Human', cutoff=adjusted_p_value_cutoff, ofname=f'/nfs/home/students/ge52qoj/SFEEBoT/output/enrichr_kegg/rf_cluster_{tissue}_kegg_bar.png')
+                except:
+                    print(f'error raised during whole tissue GSEA ({tissue})')
+
+                print(f'------------------- each SF in {tissue} -------------------')
+                for sf_name in result_df['sf_name']:
+                    try:
+                        if len(result_df.loc[result_df['sf_name'] == sf_name, 'most_important_feature_genes'].values.tolist()[0]) > 0:
+                            #bm = Biomart()
+                            queries = result_df.loc[result_df['sf_name'] == sf_name, 'most_important_feature_genes'].values.tolist()[0]
+                            if '/' in sf_name:
+                                with open('/nfs/home/students/ge52qoj/SFEEBoT/output/gene_list/rf_most_impo_feat_genes_{}_{}.txt'.format(tissue, sf_name.split('/')[0]), 'w') as f:
+                                    for gene in queries:
+                                        f.write(gene + '\n')
+                            else:
+                                with open(f'/nfs/home/students/ge52qoj/SFEEBoT/output/gene_list/rf_most_impo_feat_genes_{tissue}_{sf_name}.txt', 'w') as f:
+                                    for gene in queries:
+                                        f.write(gene + '\n')
+                            #gene_list = bm.query(dataset='hsapiens_gene_ensembl', attributes=['ensembl_gene_id', 'external_gene_name', 'entrezgene_id', 'go_id'])#, filters={'link_ensembl_gene_id': queries})
+                            dataset = Dataset(name='hsapiens_gene_ensembl', host='http://www.ensembl.org')
+                            #print(dataset.filters)
+                            #print(dataset.attributes)
+                            gene_ids_df = dataset.query(attributes=['ensembl_gene_id', 'external_gene_name'], filters={'link_ensembl_gene_id': queries})#'entrezgene_id', 'go_id'
+                            gene_ids_df.dropna(inplace=True)
+                            #print(gene_ids_df.head(3))
+                            #print(gene_ids_df['Gene name'].values.tolist())
+                            if gene_ids_df.shape[0] > 0:
+                                enr = gp.enrichr(gene_list=gene_ids_df['Gene name'].values.tolist(),
+                                                 gene_sets='KEGG_2021_Human', #['KEGG_2021_HumanKEGG_2021_Human', 'KEGG_2013'],
+                                                 organism='Human',
+                                                 description= f'rf_{tissue}_{sf_name}',# + '_'+ tissue + '_' + sf_name,
+                                                 outdir='/nfs/home/students/ge52qoj/SFEEBoT/output/enrichr_kegg',
+                                                 cutoff=0.5,  # test dataset, use lower value from range(0,1)
+                                                 no_plot = True)
+                                #print(enr.results.head(3))
+                                if '/' in sf_name:
+                                    barplot(enr.res2d, title='KEGG_2021_Human', cutoff=0.5, ofname='/nfs/home/students/ge52qoj/SFEEBoT/output/enrichr_kegg/rf_cluster_{}_{}_kegg_bar.png'.format(tissue, sf_name.split('/')[0]))
+                                else:
+                                    barplot(enr.res2d, title='KEGG_2021_Human', cutoff=0.5, ofname=f'/nfs/home/students/ge52qoj/SFEEBoT/output/enrichr_kegg/rf_cluster_{tissue}_{sf_name}_kegg_bar.png')
+                                #dotplot(enr.res2d, title='KEGG_2016', cutoff=0.01, cmap='viridis_r', ofname=f'/nfs/home/students/ge52qoj/SFEEBoT/output/enrichr_kegg/rf_cluster_{tissue}_{sf_name}_kegg_dot.png')
+                    except:
+                        print(f'error raised during SF GSEA ({tissue}, {sf_name})')
+    #'''
+    #------------------------------------
+    # merge all result to one big table, discard tissues with result_df having negative M1/M2 R2 scores
+    # ------------------------------------
+    tissue_2_result_df = {key: df for key, df in tissue_2_result_df.items() if
+                          (df['M1_mean_R2_score'] < 0).values.any() == False
+                          and (df['M2_mean_R2_score'] < 0).values.any() == False}
+    big_result_df = pd.concat(tissue_2_result_df.values())
+    big_result_df.dropna(inplace=True)
+    # ------------------------------------
+    # violin plot, M1 performance of all SF, tissue wise
+    # ------------------------------------
+    plt.figure(figsize=(10, 8))
+    sns.violinplot(x='tissue', y='M1_mean_R2_score', data=big_result_df, cut=0)
+    plt.ylabel('R2 score')
+    plt.xlabel('')
+    plt.xticks(rotation=90)
+    plt.title('RF M1 performance of all SF (cluster)')
+    plt.tight_layout()
+    plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fig/rf/rf_r2_m1_vio_all_sf_cluster.png')
+    plt.show()
+    # ------------------------------------
+    # violin plot, M2 performance of all SF, tissue wise
+    # ------------------------------------
+    plt.figure(figsize=(10, 8))
+    sns.violinplot(x='tissue', y='M2_mean_R2_score', data=big_result_df, cut=0)
+    plt.ylabel('R2 score')
+    plt.xlabel('')
+    plt.xticks(rotation=90)
+    plt.title('RF M2 performance of all SF (cluster)')
+    plt.tight_layout()
+    plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fig/rf/rf_r2_m2_vio_all_sf_cluster.png')
+    plt.show()
+
+    # ------------------------------------
+    # tissue specific SF only
+    # ------------------------------------
+    if big_result_df[big_result_df['tissue_specific'] == 1].shape[0] > 0:
+        big_result_df_tissue_speci_sf = big_result_df.loc[big_result_df['tissue_specific'] == 1, ['sf_name', 'tissue', 'M1_mean_R2_score', 'M2_mean_R2_score']]
+        # ------------------------------------
+        # violin plot, M1 performance of tissue specific SF, tissue wise
+        # ------------------------------------
+        plt.figure(figsize=(10, 8))
+        sns.violinplot(x='tissue', y='M1_mean_R2_score', data=big_result_df_tissue_speci_sf, cut=0)
+        plt.ylabel('R2 score')
+        plt.xlabel('')
+        plt.xticks(rotation=90)
+        plt.title('RF M1 performance of tissue specific SF (cluster)')
+        plt.tight_layout()
+        plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fig/rf/rf_r2_m1_vio_tissue_speci_sf_cluster.png')
+        plt.show()
+        # ------------------------------------
+        # violin plot, M2 performance of tissue specific SF, tissue wise
+        # ------------------------------------
+        plt.figure(figsize=(10, 8))
+        sns.violinplot(x='tissue', y='M2_mean_R2_score', data=big_result_df_tissue_speci_sf, cut=0)
+        plt.ylabel('R2 score')
+        plt.xlabel('')
+        plt.xticks(rotation=90)
+        plt.title('RF M2 performance of tissue specific SF (cluster)')
+        plt.tight_layout()
+        plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fig/rf/rf_r2_m2_vio_tissue_speci_sf_cluster.png')
+        plt.show()
+
+    # ------------------------------------
+    # M2 to M0 significant SF only
+    # ------------------------------------
+    if big_result_df[big_result_df['M2_significant_M0'] == 1].shape[0] > 0:
+        big_result_df_M2_to_M0_signif_sf = big_result_df.loc[big_result_df['M2_significant_M0'] == 1, ['sf_name', 'tissue', 'M2_mean_R2_score']]
+        # ------------------------------------
+        # violin plot, M2 performance of M2 to M0 significant SF, tissue wise
+        # ------------------------------------
+        plt.figure(figsize=(10, 8))
+        sns.violinplot(x='tissue', y='M2_mean_R2_score', data=big_result_df_M2_to_M0_signif_sf, cut=0)
+        plt.ylabel('R2 score')
+        plt.xlabel('')
+        plt.xticks(rotation=90)
+        plt.title('rf M2 performance of M2 to M0 significant SF (cluster)')
+        plt.tight_layout()
+        plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fig/rf/rf_r2_m2_vio_m0_signif_sf_cluster.png')
+        plt.show()

@@ -71,16 +71,16 @@ def convert_age(pheno_row):
 '''
 
 def read_all(**paths):
-    # tpm=args.tpm, att=args.att, pheno=args.pheno, srrgtex=args.srrgetex, ginf=args.ginf, sf=args.sf, psi=args.psi
+    # norm=args.norm, att=args.att, pheno=args.pheno, srrgtex=args.srrgetex, ginf=args.ginf, sf=args.sf, psi=args.psi
 
     # ------------------------------------
     # read all data from files
     # ------------------------------------
     for path in paths:
-        if path == 'tpm':
-            tpm_path = paths['tpm']
-            #tpm_table = read_gct(paths['tpm'])
-            #tpm_table = pd.read_csv(paths['tpm'], sep='\t', skiprows=2)
+        if path == 'norm':
+            norm_path = paths['norm']
+            #norm_table = read_gct(paths['norm'])
+            #norm_table = pd.read_csv(paths['norm'], sep='\t', skiprows=2)
         if path == 'att':
             sample_attributes = pd.read_csv(paths['att'], sep='\t', usecols=['SAMPID', 'SMTSD'])[['SAMPID', 'SMTSD']]  # ensure columns in ['SAMPID', 'SMTSD'] order
         if path == 'pheno':
@@ -97,11 +97,11 @@ def read_all(**paths):
             psi_path = paths['psi']
         if path == 'drm':
             dimension_reduct_method = paths['drm']
-    return tpm_path, sample_attributes, subject_phenotypes, gene_info, splicing_factors, psi_path, dimension_reduct_method  #srr_gtex_id,
+    return norm_path, sample_attributes, subject_phenotypes, gene_info, splicing_factors, psi_path, dimension_reduct_method  #srr_gtex_id,
 
 
 def merge_all(tables):
-    (tpm_path, sample_attributes, subject_phenotypes, gene_info, splicing_factors, psi_path, dimension_reduct_method) = tables  #srr_gtex_id,
+    (norm_path, sample_attributes, subject_phenotypes, gene_info, splicing_factors, psi_path, dimension_reduct_method) = tables  #srr_gtex_id,
     # ------------------------------------
     # sf + ginf
     # ------------------------------------
@@ -113,12 +113,13 @@ def merge_all(tables):
     sf_ensembl_ids = set(df1['dbXrefs'].tolist())  # remove duplicates
     sf_ensembl_ids = list(sf_ensembl_ids)
     sf_ensembl_2_name = {ensembl_id:df1.loc[df1.dbXrefs == ensembl_id, 'Splicing Factor'].values[0] for ensembl_id in sf_ensembl_ids}
-    joblib.dump(sf_ensembl_2_name, '/nfs/home/students/ge52qoj/SFEEBoT/output/sf_ensembl_2_name.sav')
+    #joblib.dump(sf_ensembl_2_name, '/nfs/home/students/ge52qoj/SFEEBoT/output/sf_ensembl_2_name.sav')
     gene_info['dbXrefs'] = gene_info['dbXrefs'].apply(extract_ensembl_id)  # extract ensembl id
     gene_info.dropna(inplace=True)
     #gene_info = gene_info[gene_info['dbXrefs'].map(len) == 15]
     all_gene_ensembl_ids = gene_info['dbXrefs'].tolist()
     all_gene_ensembl_id_2_name = {ensembl_id : gene_info.loc[gene_info.dbXrefs == ensembl_id, 'Symbol'].values[0] for ensembl_id in all_gene_ensembl_ids}
+    #joblib.dump(all_gene_ensembl_id_2_name, '/nfs/home/students/ge52qoj/SFEEBoT/output/all_gene_ensembl_id_2_name.sav')
     '''
     protein_coding_genes = gene_info.loc[gene_info.type_of_gene == 'protein-coding']  # get the list of ensembl ids of protein coding genes
     protein_coding_genes['dbXrefs'] = protein_coding_genes['dbXrefs'].apply(extract_ensembl_id)
@@ -223,88 +224,88 @@ def merge_all(tables):
     print(f'The final psi_table.shape = {psi_table.shape}')  # (1616, 2656)
 
     # ------------------------------------
-    # read tpm.gct file
+    # read norm.gct file
     # ------------------------------------
-    tpm_samp_ids = pd.read_csv(tpm_path, sep='\t', skiprows=2, nrows=0).columns.tolist()  # just read the header line, convert it to a list
-    #tpm_samp_ids = tpm_samp_ids.remove('Name')
-    #tpm_samp_ids = tpm_samp_ids.remove('Description')
-    del tpm_samp_ids[:2]  # delete the first two elements ('Name', 'Description') in tpm_samp_ids   # len = 17382
-    print(f'tpm_samp_ids = {len(tpm_samp_ids)}')  # 17382
-    intersect_samp_ids_tpm = list(set(tpm_samp_ids) & set(sample_samp_ids))  # sample ids in both tpm_table and att_table
-    print(f'intersect_samp_ids_tpm = {len(intersect_samp_ids_tpm)}')  # 1616
-    intersect_samp_ids_tpm = ['Name', *intersect_samp_ids_tpm]  # 'Name' refers to ensembl id
-    chunks_tpm = pd.read_csv(tpm_path, sep='\t', skiprows=2, usecols=intersect_samp_ids_tpm, chunksize=10 ** 3)  # total row number in tpm.gct: 56,200
-    #tpm_table = pd.concat(valid(chunks, sf_ensembl_ids))  # select only the splicing factor genes
-    tpm_table = pd.concat(chunks_tpm)  # all genes  # 3 min
-    #tpm_table = pd.concat(valid(chunks, protein_coding_genes))  # select only the protein coding genes
-    ##tpm_table = tpm_table.rename(columns={'Name': 'SAMPID'})
-    tpm_table['Name'] = tpm_table['Name'].apply(lambda entry: entry.split('.')[0]) # ENSG00000223972.5 -> ENSG00000223972, just to match the format of SF ensembl ids ENSG00000223972, could be misleading, if change SF list, this step may not be needed anymore  # POINT!
-    #valid_ensembl_ids = tpm_table['Name'].tolist()
-    #all_ensembl_ids_tpm = set(tpm_table['Name'].tolist())
-    tpm_table = tpm_table.set_index('Name')
-    tpm_table = tpm_table.T  # tpm_table: intersect_samp_ids x ensembl_ids
-    #tpm_table = tpm_table.reset_index() # test
-    #tpm_table = tpm_table.rename(columns={'index': 'SAMPID'}) # test
-    #df3 = pd.merge(df2, tpm_table, how='inner', on='SAMPID') # test
+    norm_samp_ids = pd.read_csv(norm_path, sep='\t', nrows=0).columns.tolist()#for GCT file: skiprows=2  # just read the header line, convert it to a list
+    #norm_samp_ids = norm_samp_ids.remove('Name')
+    #norm_samp_ids = norm_samp_ids.remove('Description')
+    del norm_samp_ids[:1] # delete the first element ('Name') in norm_samp_ids  #del norm_samp_ids[:2]  # delete the first two elements ('Name', 'Description') in norm_samp_ids   # len = 17382
+    print(f'norm_samp_ids = {len(norm_samp_ids)}')  # 17382
+    intersect_samp_ids_norm = list(set(norm_samp_ids) & set(sample_samp_ids))  # sample ids in both norm_table and att_table
+    print(f'intersect_samp_ids_norm = {len(intersect_samp_ids_norm)}')  # 1616
+    intersect_samp_ids_norm = ['Name', *intersect_samp_ids_norm]  # 'Name' refers to ensembl id
+    chunks_norm = pd.read_csv(norm_path, sep='\t', usecols=intersect_samp_ids_norm, chunksize=10 ** 3)#for GCT file: skiprows=2  # total row number in norm.gct: 56,200
+    #norm_table = pd.concat(valid(chunks, sf_ensembl_ids))  # select only the splicing factor genes
+    norm_table = pd.concat(chunks_norm)  # all genes  # 3 min
+    #norm_table = pd.concat(valid(chunks, protein_coding_genes))  # select only the protein coding genes
+    ##norm_table = norm_table.rename(columns={'Name': 'SAMPID'})
+    norm_table['Name'] = norm_table['Name'].apply(lambda entry: entry.split('.')[0]) # ENSG00000223972.5 -> ENSG00000223972, just to match the format of SF ensembl ids ENSG00000223972, could be misleading, if change SF list, this step may not be needed anymore  # POINT!
+    #valid_ensembl_ids = norm_table['Name'].tolist()
+    #all_ensembl_ids_norm = set(norm_table['Name'].tolist())
+    norm_table = norm_table.set_index('Name')
+    norm_table = norm_table.T  # norm_table: intersect_samp_ids x ensembl_ids
+    #norm_table = norm_table.reset_index() # test
+    #norm_table = norm_table.rename(columns={'index': 'SAMPID'}) # test
+    #df3 = pd.merge(df2, norm_table, how='inner', on='SAMPID') # test
     #print(df3.shape)  # test
     #t = df3.loc[df3.SMTSD == 'Whole Blood', :]  # test
     #print(t.shape)
     #print(t.loc[t.SUBJID.duplicated(), :])  # test
     #print(t.loc[t.SUBJID == 'GTEX-S4Q7', ['SUBJID', 'SAMPID']])  # test  #'GTEX-S4Q7' not in 'Heart - Atrial Appendage', 'Heart - Left Ventricle'
-    tpm_table_sf = tpm_table[[*sf_ensembl_ids]]
-    tpm_table_sf.reset_index(drop=True, inplace=True)
-    print(f'tpm_table_sf.shape = {tpm_table_sf.shape}')
+    norm_table_sf = norm_table[[*sf_ensembl_ids]]
+    norm_table_sf.reset_index(drop=True, inplace=True)
+    print(f'norm_table_sf.shape = {norm_table_sf.shape}')
     # ------------------------------------
-    # filter out low variance genes (cols) in tpm table
+    # filter out low variance genes (cols) in norm table
     # ------------------------------------
-    tpm_mean_threshold = 0.01
-    variance_selector_tpm = VarianceThreshold(threshold=tpm_mean_threshold)
-    row_num_orig_tpm_table = tpm_table.shape[1]
-    samp_ids_tpm = tpm_table.index.tolist()
-    #tpm_table = variance_selector_tpm.fit_transform(tpm_table)
-    variance_selector_tpm.fit(tpm_table)
-    tpm_table = tpm_table.loc[:, variance_selector_tpm.get_support()]
-    all_ensembl_ids_tpm = set(tpm_table.columns.tolist())
-    row_num_filt_vari_tpm_table = tpm_table.shape[1]
-    variances_tpm = pd.DataFrame(data=variance_selector_tpm.variances_, columns=['variance'])
-    ##sns.displot(data=variances_tpm, x="variance", kde=True, color="purple")
+    norm_mean_threshold = 0.01
+    variance_selector_norm = VarianceThreshold(threshold=norm_mean_threshold)
+    row_num_orig_norm_table = norm_table.shape[1]
+    samp_ids_norm = norm_table.index.tolist()
+    #norm_table = variance_selector_norm.fit_transform(norm_table)
+    variance_selector_norm.fit(norm_table)
+    norm_table = norm_table.loc[:, variance_selector_norm.get_support()]
+    all_ensembl_ids_norm = set(norm_table.columns.tolist())
+    row_num_filt_vari_norm_table = norm_table.shape[1]
+    variances_norm = pd.DataFrame(data=variance_selector_norm.variances_, columns=['variance'])
+    ##sns.displot(data=variances_norm, x="variance", kde=True, color="purple")
     #fig, ax = plt.subplots()
-    variances_tpm.plot.hist(bins=50, grid=True, ylabel='count', xlabel='variance')
+    variances_norm.plot.hist(bins=50, grid=True, ylabel='count', xlabel='variance')
     #ax.set_xlabel('variance')
     #ax.set_ylabel('count')
-    plt.title('Variance distribution of TPM (original)')
-    plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fig/dis_variance_tpm_orig.png')
+    plt.title('Variance distribution of NORM (original)')
+    plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fig/dis_variance_norm_orig.png')
     plt.tight_layout()
     plt.show()
-    variance_selector_tpm.fit(tpm_table)
-    variances_tpm = pd.DataFrame(data=variance_selector_tpm.variances_, columns=['variance'])
-    #sns.displot(data=variances_tpm, x="variance", kde=True, color="purple")
-    variances_tpm.plot.hist(bins=50, grid=True, ylabel='count', xlabel='variance')
-    plt.title(f'Variance distribution of TPM (filter out < {tpm_mean_threshold})')
+    variance_selector_norm.fit(norm_table)
+    variances_norm = pd.DataFrame(data=variance_selector_norm.variances_, columns=['variance'])
+    #sns.displot(data=variances_norm, x="variance", kde=True, color="purple")
+    variances_norm.plot.hist(bins=50, grid=True, ylabel='count', xlabel='variance')
+    plt.title(f'Variance distribution of NORM (filter out < {norm_mean_threshold})')
     plt.tight_layout()
-    plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fig/dis_variance_tpm_filtered.png')
+    plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fig/dis_variance_norm_filtered.png')
     plt.show()
-    #tpm_table = pd.DataFrame(tpm_table, columns=variance_selector_tpm.get_feature_names_out())
-    tpm_table['SAMPID'] = samp_ids_tpm
-    tpm_table['SAMPID'] = tpm_table['SAMPID'].astype('object')
-    #tpm_table.set_index('samp_ids_tpm')
-    print(f'tpm_table: tpm_mean_threshold = {tpm_mean_threshold}, row number before low variance filtering = {row_num_orig_tpm_table},'
-        f' row number after low variance filtering = {row_num_filt_vari_tpm_table}, filtered out {(row_num_orig_tpm_table - row_num_filt_vari_tpm_table) / float(row_num_orig_tpm_table)} % of genes\n')
-    #tpm_table = tpm_table.reset_index()  # reset the index of the df, use the default one instead
-    #tpm_table = tpm_table.rename(columns={'index': 'SAMPID'})
-    #print(tpm_table.shape)  # test # (1616, 29296)
-    #tpm_table = tpm_table.loc[:, ~tpm_table.columns.duplicated()]  # remove duplicated columns (based on column names, ensembl id)  # test
-    #print(tpm_table.shape)  # test  # (1616, 29296)
-    #tpm_table = tpm_table.loc[~tpm_table.duplicated(), :]  # test
-    print(f'tpm_table.shape before concat with tpm_table_sf = {tpm_table.shape}')  # (1616, 29295)
-    tpm_table.reset_index(drop=True, inplace=True)
-    tpm_table = pd.concat([tpm_table, tpm_table_sf], axis=1, join='outer', ignore_index=False)
-    tpm_table = tpm_table.loc[~tpm_table.duplicated(), ~tpm_table.columns.duplicated()]  # remove duplicated sf (col) if it wasn't filtered out
-    print(f'The final tpm_table.shape = {tpm_table.shape}')  # (1616, 29362)
+    #norm_table = pd.DataFrame(norm_table, columns=variance_selector_norm.get_feature_names_out())
+    norm_table['SAMPID'] = samp_ids_norm
+    norm_table['SAMPID'] = norm_table['SAMPID'].astype('object')
+    #norm_table.set_index('samp_ids_norm')
+    print(f'norm_table: norm_mean_threshold = {norm_mean_threshold}, row number before low variance filtering = {row_num_orig_norm_table},'
+        f' row number after low variance filtering = {row_num_filt_vari_norm_table}, filtered out {(row_num_orig_norm_table - row_num_filt_vari_norm_table) / float(row_num_orig_norm_table)} % of genes\n')
+    #norm_table = norm_table.reset_index()  # reset the index of the df, use the default one instead
+    #norm_table = norm_table.rename(columns={'index': 'SAMPID'})
+    #print(norm_table.shape)  # test # (1616, 29296)
+    #norm_table = norm_table.loc[:, ~norm_table.columns.duplicated()]  # remove duplicated columns (based on column names, ensembl id)  # test
+    #print(norm_table.shape)  # test  # (1616, 29296)
+    #norm_table = norm_table.loc[~norm_table.duplicated(), :]  # test
+    print(f'norm_table.shape before concat with norm_table_sf = {norm_table.shape}')  # (1616, 29295)
+    norm_table.reset_index(drop=True, inplace=True)
+    norm_table = pd.concat([norm_table, norm_table_sf], axis=1, join='outer', ignore_index=False)
+    norm_table = norm_table.loc[~norm_table.duplicated(), ~norm_table.columns.duplicated()]  # remove duplicated sf (col) if it wasn't filtered out
+    print(f'The final norm_table.shape = {norm_table.shape}')  # (1616, 29362)
     # ------------------------------------
-    # att + pheno + tpm
+    # att + pheno + norm
     # ------------------------------------
-    df3 = pd.merge(df2, tpm_table, how='inner', on='SAMPID')
+    df3 = pd.merge(df2, norm_table, how='inner', on='SAMPID')
     #print(df3.shape)  # (1684, 29301)
     ###df3 = pd.merge(df3, psi_table, how='inner', on='SAMPID')
     ###print(df3.shape)
@@ -312,11 +313,11 @@ def merge_all(tables):
     #print(df3.shape)  # (1684, 29301)
     #print(df3.loc[df3.duplicated(keep=False), ['SUBJID', 'SAMPID', 'SEX', 'AGE', 'RACE', 'BMI']])  # test
     df3 = df3.loc[~df3.duplicated(), :]  # remove duplicated rows (based on row values, sample + expression)  # (1684, 29301) -> (1616, 29301)
-    #df3 = pd.merge(df2, tpm_table, how='left', on='SAMPID')
+    #df3 = pd.merge(df2, norm_table, how='left', on='SAMPID')
     #df3 = df3.dropna()  # drop rows with any column having NaN data
     print(f'The final df3.shape = {df3.shape}')  # (1616, 29301)
     # ------------------------------------
-    # Do some tissue-specific statistics in df3 (CF + TPM)
+    # Do some tissue-specific statistics in df3 (CF + NORM)
     # ------------------------------------
     tissues = set(df3['SMTSD'].values)  # get all tissues
     print('total tissues: ' + str(len(tissues)))
@@ -370,7 +371,7 @@ def merge_all(tables):
     # filter out low expression genes (2 conditions), in whole blood df
     # ------------------------------------
     filtered_genes = set()
-    list_percentile_samp_above_tpm_thresh = []
+    list_percentile_samp_above_norm_thresh = []
     # ------------------------------------
     # calculate tissue specificity for each gene, log2(mean in target tissue / mean in rest tissues), consider genes among top 25%, in tissue df other than whole blood
     # ------------------------------------
@@ -380,17 +381,17 @@ def merge_all(tables):
     # ------------------------------------
     tissue_2_tissue_df = {}
 
-    tpm_mean_threshold = 1
+    norm_mean_threshold = 1
     percentile_threshold = 0.05
-    print(f'low expression gene filtering: (condition 1: mean TPM > threshold) tpm_mean_threshold = {tpm_mean_threshold}')
-    print(f'low expression gene filtering: (condition 2: TPM > threshold in >5% of samples) percentile_threshold = {percentile_threshold}')
+    print(f'low expression gene filtering: (condition 1: mean NORM > threshold) norm_mean_threshold = {norm_mean_threshold}')
+    print(f'low expression gene filtering: (condition 2: NORM > threshold in >5% of samples) percentile_threshold = {percentile_threshold}')
 
     def find_low_exp_gene(gene_col):
-        if gene_col.mean() <= tpm_mean_threshold:  # condition 1: mean TPM > threshold
+        if gene_col.mean() <= norm_mean_threshold:  # condition 1: mean NORM > threshold
             filtered_genes.add(gene_col.name)
-        percentile_samp_above_tpm_thresh = float(gene_col[gene_col > tpm_mean_threshold].size) / float(gene_col.size)  # condition 2: TPM > threshold in >5% of samples
-        list_percentile_samp_above_tpm_thresh.append(percentile_samp_above_tpm_thresh)
-        if percentile_samp_above_tpm_thresh <= percentile_threshold:
+        percentile_samp_above_norm_thresh = float(gene_col[gene_col > norm_mean_threshold].size) / float(gene_col.size)  # condition 2: NORM > threshold in >5% of samples
+        list_percentile_samp_above_norm_thresh.append(percentile_samp_above_norm_thresh)
+        if percentile_samp_above_norm_thresh <= percentile_threshold:
             filtered_genes.add(gene_col.name)
 
     sf_genes_2_tissue_specificity = {}
@@ -412,46 +413,46 @@ def merge_all(tables):
         tissue_df = tissue_df.reset_index(drop=True)
 
         if tissue == 'Whole Blood':  # whole blood, do filtering of low expression genes
-            mean_tpm_all_genes = tissue_df.drop(['SAMPID', 'SMTSD', 'SUBJID', 'SEX', 'AGE'], axis=1, inplace=False).mean(axis=0, numeric_only=True)#, 'RACE', 'BMI']
-            print('max(mean TPM of each gene) = '+str(mean_tpm_all_genes.max()))
-            print('number of total genes = ' + str(mean_tpm_all_genes.size))
-            #mean_tpm_all_genes = mean_tpm_all_genes[mean_tpm_all_genes < 10]
-            print(f'number of genes with mean TPM < threshold {tpm_mean_threshold} = ' + str(mean_tpm_all_genes[mean_tpm_all_genes < tpm_mean_threshold].size))
-            print(str(mean_tpm_all_genes.size)+' - '+str(mean_tpm_all_genes[mean_tpm_all_genes < tpm_mean_threshold].size)+' = '+str(mean_tpm_all_genes.size-mean_tpm_all_genes[mean_tpm_all_genes < tpm_mean_threshold].size))
-            mean_tpm_all_genes.plot.hist(bins=50, grid=True, ylabel='Count', xlabel='mean TPM', title=f'All genes\' mean TPM in {tissue}', color="purple")
+            mean_norm_all_genes = tissue_df.drop(['SAMPID', 'SMTSD', 'SUBJID', 'SEX', 'AGE'], axis=1, inplace=False).mean(axis=0, numeric_only=True)#, 'RACE', 'BMI']
+            print('max(mean NORM of each gene) = '+str(mean_norm_all_genes.max()))
+            print('number of total genes = ' + str(mean_norm_all_genes.size))
+            #mean_norm_all_genes = mean_norm_all_genes[mean_norm_all_genes < 10]
+            print(f'number of genes with mean NORM < threshold {norm_mean_threshold} = ' + str(mean_norm_all_genes[mean_norm_all_genes < norm_mean_threshold].size))
+            print(str(mean_norm_all_genes.size)+' - '+str(mean_norm_all_genes[mean_norm_all_genes < norm_mean_threshold].size)+' = '+str(mean_norm_all_genes.size-mean_norm_all_genes[mean_norm_all_genes < norm_mean_threshold].size))
+            mean_norm_all_genes.plot.hist(bins=50, grid=True, ylabel='Count', xlabel='mean NORM', title=f'All genes\' mean NORM in {tissue}', color="purple")
             plt.tight_layout()
-            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/wb_all_gene_mean_tpm_hist.png')
+            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/wb_all_gene_mean_norm_hist.png')
             plt.show()
-            mean_tpm_all_genes[mean_tpm_all_genes < 10].plot.hist(bins=50, grid=True, ylabel='Count', xlabel='mean TPM', title=f'All genes\' mean TPM (< 10) in {tissue}', color="purple")
+            mean_norm_all_genes[mean_norm_all_genes < 10].plot.hist(bins=50, grid=True, ylabel='Count', xlabel='mean NORM', title=f'All genes\' mean NORM (< 10) in {tissue}', color="purple")
             plt.tight_layout()
-            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/wb_all_gene_mean_tpm_hist_upto10.png')
+            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/wb_all_gene_mean_norm_hist_upto10.png')
             plt.show()
-            mean_tpm_all_genes[mean_tpm_all_genes > tpm_mean_threshold].plot.hist(bins=50, grid=True, ylabel='Count', xlabel='mean TPM', title=f'Filtered genes\' mean TPM (> threshold {tpm_mean_threshold}) in {tissue}', color="purple")
+            mean_norm_all_genes[mean_norm_all_genes > norm_mean_threshold].plot.hist(bins=50, grid=True, ylabel='Count', xlabel='mean NORM', title=f'Filtered genes\' mean NORM (> threshold {norm_mean_threshold}) in {tissue}', color="purple")
             plt.tight_layout()
-            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/wb_gene_mean_tpm_hist_{tpm_mean_threshold}.png')
+            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/wb_gene_mean_norm_hist_{norm_mean_threshold}.png')
             plt.show()
-            mean_tpm_all_genes[(mean_tpm_all_genes > tpm_mean_threshold) & (mean_tpm_all_genes < 30)].plot.hist(bins=50, grid=True, ylabel='Count', xlabel='mean TPM', title=f'Filtered genes\' mean TPM (> threshold {tpm_mean_threshold} & < 30) in {tissue}', color="purple")
+            mean_norm_all_genes[(mean_norm_all_genes > norm_mean_threshold) & (mean_norm_all_genes < 30)].plot.hist(bins=50, grid=True, ylabel='Count', xlabel='mean NORM', title=f'Filtered genes\' mean NORM (> threshold {norm_mean_threshold} & < 30) in {tissue}', color="purple")
             plt.tight_layout()
-            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/wb_gene_mean_tpm_hist_{tpm_mean_threshold}-30.png')
+            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/wb_gene_mean_norm_hist_{norm_mean_threshold}-30.png')
             plt.show()
             tissue_df.drop(['SAMPID', 'SMTSD', 'SUBJID', 'SEX', 'AGE'], axis=1, inplace=False).apply(find_low_exp_gene, axis=0)#, 'RACE', 'BMI'
-            series_percentile_samp_above_tpm_thresh = pd.Series(list_percentile_samp_above_tpm_thresh)
-            series_percentile_samp_above_tpm_thresh.plot.hist(bins=50, grid=True, ylabel='Count', xlabel='Percentile', title=f'All Percentile of samples for each gene with TPM > {tpm_mean_threshold}', color="red")
+            series_percentile_samp_above_norm_thresh = pd.Series(list_percentile_samp_above_norm_thresh)
+            series_percentile_samp_above_norm_thresh.plot.hist(bins=50, grid=True, ylabel='Count', xlabel='Percentile', title=f'All Percentile of samples for each gene with NORM > {norm_mean_threshold}', color="red")
             plt.tight_layout()
-            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/list_percentile_samp_above_thresh_{tpm_mean_threshold}.png')
+            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/list_percentile_samp_above_thresh_{norm_mean_threshold}.png')
             plt.show()
-            series_percentile_samp_above_tpm_thresh[series_percentile_samp_above_tpm_thresh < 0.2].plot.hist(bins=50, grid=True, ylabel='Count', xlabel='Percentile', title=f'Percentile (show 0-0.2) of samples for each gene with TPM > {tpm_mean_threshold}', color="red")
+            series_percentile_samp_above_norm_thresh[series_percentile_samp_above_norm_thresh < 0.2].plot.hist(bins=50, grid=True, ylabel='Count', xlabel='Percentile', title=f'Percentile (show 0-0.2) of samples for each gene with NORM > {norm_mean_threshold}', color="red")
             plt.tight_layout()
-            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/list_percentile_0-20_samp_above_thresh_{tpm_mean_threshold}.png')
+            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/list_percentile_0-20_samp_above_thresh_{norm_mean_threshold}.png')
             plt.show()
-            series_percentile_samp_above_tpm_thresh[series_percentile_samp_above_tpm_thresh > percentile_threshold].plot.hist(bins=50, grid=True, ylabel='Count', xlabel='Percentile', title=f'Filtered percentile (>{percentile_threshold}) of samples for each gene with TPM > {tpm_mean_threshold}', color="red")
+            series_percentile_samp_above_norm_thresh[series_percentile_samp_above_norm_thresh > percentile_threshold].plot.hist(bins=50, grid=True, ylabel='Count', xlabel='Percentile', title=f'Filtered percentile (>{percentile_threshold}) of samples for each gene with NORM > {norm_mean_threshold}', color="red")
             plt.tight_layout()
-            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/list_percentile_filtered_samp_above_thresh_{tpm_mean_threshold}.png')
+            plt.savefig(f'/nfs/home/students/ge52qoj/SFEEBoT/output/fig/list_percentile_filtered_samp_above_thresh_{norm_mean_threshold}.png')
             plt.show()
-            remained_genes = set(all_ensembl_ids_tpm) - filtered_genes
+            remained_genes = set(all_ensembl_ids_norm) - filtered_genes
             #print(remained_genes)
             print('number of remained genes after filtering: ' + str(len(remained_genes)))
-            print(str(mean_tpm_all_genes.size - mean_tpm_all_genes[mean_tpm_all_genes < tpm_mean_threshold].size)+' - '+str(len(remained_genes))+' = '+str((mean_tpm_all_genes.size - mean_tpm_all_genes[mean_tpm_all_genes < tpm_mean_threshold].size)-len(remained_genes)))
+            print(str(mean_norm_all_genes.size - mean_norm_all_genes[mean_norm_all_genes < norm_mean_threshold].size)+' - '+str(len(remained_genes))+' = '+str((mean_norm_all_genes.size - mean_norm_all_genes[mean_norm_all_genes < norm_mean_threshold].size)-len(remained_genes)))
             tissue_df = tissue_df[['SAMPID', 'SMTSD', 'SUBJID', 'SEX', 'AGE', *remained_genes]]#, 'RACE', 'BMI'
             tissue_df.dropna(axis=0, how='any', inplace=True)
             #print(tissue_df.isnull().values.any())   # test   # True
@@ -459,7 +460,7 @@ def merge_all(tables):
             #print(tissue_df.loc[:, ['SUBJID', 'SAMPID']].head())  # test
 
             # ------------------------------------
-            # add psi values, df4 = att + pheno + tpm + psi
+            # add psi values, df4 = att + pheno + norm + psi
             # ------------------------------------
             print(f'tissue_df ({tissue}) before merge with psi_table = {tissue_df.shape}')  # (755, 13052) (whole blood)
             tissue_df = pd.merge(tissue_df, psi_table, how='inner', on='SAMPID')
@@ -478,7 +479,7 @@ def merge_all(tables):
             tissue_2_tissue_specific_sf_genes[tissue] = sorted_list_sf_genes_alone_tissue_specificity
 
         ## ------------------------------------
-        ## add psi values, df4 = att + pheno + tpm + psi
+        ## add psi values, df4 = att + pheno + norm + psi
         ## ------------------------------------
 
         #print(f'tissue_df ({tissue}) before merge with psi_table = {tissue_df.shape}')  # (432, 29368), (Heart - Left Ventricle)
@@ -493,8 +494,8 @@ def merge_all(tables):
     '''
     # too slow version with loops
     for tissue in main_tissues:  # loop over tissues
-        list_mean_gene_tpm = []
-        #list_median_gene_tpm = []
+        list_mean_gene_norm = []
+        #list_median_gene_norm = []
         filtered_genes = []
         list_percentile_samp_above_thresh = []
         sf_genes_2_tissue_specificity = {}
@@ -513,19 +514,19 @@ def merge_all(tables):
                 tissue_specificity = np.log2(ratio)[0]  # return value is array-like too
                 sf_genes_2_tissue_specificity[gene] = tissue_specificity
 
-            gene_series = df3[gene]  # gene filtering, condition 1: mean/median TPM > 1
+            gene_series = df3[gene]  # gene filtering, condition 1: mean/median NORM > 1
             mean_gene = gene_series.mean()
-            list_mean_gene_tpm.append(mean_gene)
+            list_mean_gene_norm.append(mean_gene)
             #median_gene = gene_series.median()
-            #list_median_gene_tpm.append(median_gene)
+            #list_median_gene_norm.append(median_gene)
             if mean_gene < 1:
                 filtered_genes.append(gene)
 
-            #gene_series.plot.hist(grid=True, title=f'Frequency of gene {gene}\'s TPM')
+            #gene_series.plot.hist(grid=True, title=f'Frequency of gene {gene}\'s NORM')
             #plt.tight_layout()
             #plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fig/gene_series.png')
             #plt.show()
-            number_total_samples = float(gene_series.size)  # gene filtering, condition 2: TPM > 1 in 20% of samples
+            number_total_samples = float(gene_series.size)  # gene filtering, condition 2: NORM > 1 in 20% of samples
             above_series = gene_series[gene_series > 1]
             number_above_samples = float(above_series.size)
             percentile_samp_above = number_above_samples / number_total_samples
@@ -534,19 +535,19 @@ def merge_all(tables):
                 filtered_genes.append(gene)
 
         # need approximately 16h to loop over all protein coding gene(19000), 3 tissues (wb, heartLV, heartAA), 1 s/gene * 19000 genes * 3 tissues = 57000 s = 16 h
-        pd.Series(list_mean_gene_tpm).plot.hist(grid=True, title=f'Frequency of all genes\' mean TPM in tissue {tissue}')
+        pd.Series(list_mean_gene_norm).plot.hist(grid=True, title=f'Frequency of all genes\' mean NORM in tissue {tissue}')
         plt.tight_layout()
-        plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fig/list_mean_gene_tpm_' + tissue + '.png')
+        plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fig/list_mean_gene_norm_' + tissue + '.png')
         plt.show()
-        #pd.Series(list_median_gene_tpm).plot.hist(grid=True, title=f'Frequency of all genes\' median TPM in tissue {tissue}')
+        #pd.Series(list_median_gene_norm).plot.hist(grid=True, title=f'Frequency of all genes\' median NORM in tissue {tissue}')
         #plt.tight_layout()
-        #plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fig/list_median_gene_tpm_' + tissue + '.png')
+        #plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fig/list_median_gene_norm_' + tissue + '.png')
         #plt.show()
         filtered_genes = set(filtered_genes)
         tissue_2_filtered_genes[tissue] = filtered_genes
         remained_genes = [g for g in all_ensembl_ids if g not in filtered_genes]  # alternative: remained_genes = set(all_ensembl_ids) - filtered_genes
         tissue_2_remained_genes[tissue] = remained_genes
-        pd.Series(list_percentile_samp_above_thresh).plot.hist(grid=True, title='Frequency of percentile of samples\' TPM above threshold for all genes')
+        pd.Series(list_percentile_samp_above_thresh).plot.hist(grid=True, title='Frequency of percentile of samples\' NORM above threshold for all genes')
         plt.tight_layout()
         plt.savefig('/nfs/home/students/ge52qoj/SFEEBoT/output/fig/list_percentile_samp_above.png')
         plt.show()
